@@ -16,56 +16,36 @@
 - `host.js` - 主机端代码，负责从 npm registry 获取版本信息
 - `client.js` - 客户端代码，负责在设置中显示更新状态和弹窗提示
 
-## 已修复问题
+## 版本历史
 
-### 问题1：无法检查更新
+### v1.2.0 (当前版本)
 
-**修复方案**：
-1. 增强错误处理，添加详细的控制台日志
-2. 验证 `web.fetch` 的正确用法
-3. 添加"测试网络"按钮用于调试
+**修改内容**：
+1. 移除 `fs` 依赖，简化代码
+2. 当前版本和最新版本都从 npm registry 获取
+3. 增强错误处理和日志输出
+4. 添加测试网络按钮用于调试
 
-### 问题2：当前版本硬编码
+**主要改进**：
+- 简化 `getCurrentVersion()` 函数
+- 使用 `web.fetch` 获取所有版本信息
+- 避免 `fs` 服务不可用的问题
 
-**修复方案**：
-1. 使用 `ctx.fs` 服务读取本地 `package.json`
-2. 路径：`node_modules/@deepseek-ai/dsh/package.json`
-3. 解析 `version` 字段
-4. 备用方案：从 npm registry 获取当前版本
+### v1.1.0
 
-**代码实现**：
-```javascript
-async function getCurrentVersion() {
-  try {
-    const fs = ctx.get('fs')
-    if (fs) {
-      const target = await fs.resolve('node_modules/@deepseek-ai/dsh/package.json')
-      const content = await fs.readText(target)
-      const pkg = JSON.parse(content)
-      return pkg.version
-    }
-  } catch (e) {
-    console.error('读取本地版本失败:', e)
-  }
-  
-  // 备用方案：从 npm registry 获取
-  try {
-    const result = await web.fetch({
-      url: 'https://registry.npmjs.org/@deepseek-ai/dsh'
-    })
-    if (result.statusCode === 200) {
-      const data = JSON.parse(result.body.content)
-      if (data['dist-tags'] && data['dist-tags'].latest) {
-        return data['dist-tags'].latest
-      }
-    }
-  } catch (e) {
-    console.error('备用方案失败:', e)
-  }
-  
-  return '1.0.0'
-}
-```
+**修改内容**：
+1. 增强 `web.fetch` 错误处理，添加详细日志
+2. 添加获取本地 DSH 版本功能（使用 `ctx.fs`）
+3. 添加备用方案：从 npm registry 获取当前版本
+4. 添加测试网络按钮用于调试
+5. 改进版本比较逻辑
+
+### v1.0.0
+
+**初始版本**：
+- 设置项显示
+- 手动检查更新
+- 弹窗提示
 
 ## 使用方法
 
@@ -156,19 +136,6 @@ async function getCurrentVersion() {
 3. **定时检查**：实现每天自动检查一次更新
 4. **改进错误处理**：显示更友好的错误信息
 5. **添加更新日志**：显示新版本的更新内容
-
-## 版本历史
-
-- **v1.1.0** (当前) - 修复版本
-  - 修复 `web.fetch` 调用问题
-  - 添加获取本地版本功能
-  - 增强错误处理和日志
-  - 添加"测试网络"调试按钮
-
-- **v1.0.0** - 初始版本
-  - 设置项显示
-  - 手动检查更新
-  - 弹窗提示
 
 ## 许可证
 
