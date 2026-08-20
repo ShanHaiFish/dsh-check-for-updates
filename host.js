@@ -73,51 +73,19 @@ return {
       try {
         console.log('正在获取当前版本...')
         
-        // 尝试使用 ctx.fs 读取本地 package.json
-        const fs = ctx.get('fs')
+        // 从 npm registry 获取当前版本
+        const result = await web.fetch({
+          url: 'https://registry.npmjs.org/@deepseek-ai/dsh'
+        })
         
-        if (fs) {
-          console.log('fs 服务可用，尝试读取本地版本...')
-          
-          try {
-            // 尝试读取 DSH 的 package.json
-            const target = await fs.resolve('node_modules/@deepseek-ai/dsh/package.json')
-            console.log('解析路径成功:', target)
-            
-            const content = await fs.readText(target)
-            console.log('读取文件成功，内容长度:', content.length)
-            
-            const pkg = JSON.parse(content)
-            console.log('解析 package.json 成功，version:', pkg.version)
-            
-            return pkg.version
-          } catch (fsError) {
-            console.error('读取本地版本失败:', fsError.message)
-            console.error('错误堆栈:', fsError.stack)
+        if (result.statusCode === 200) {
+          const data = JSON.parse(result.body.content)
+          if (data['dist-tags'] && data['dist-tags'].latest) {
+            console.log('从 npm registry 获取当前版本:', data['dist-tags'].latest)
+            return data['dist-tags'].latest
           }
-        } else {
-          console.warn('fs 服务不可用')
         }
         
-        // 备用方案：从 npm registry 获取当前版本
-        console.log('尝试备用方案：从 npm registry 获取当前版本...')
-        try {
-          const result = await web.fetch({
-            url: 'https://registry.npmjs.org/@deepseek-ai/dsh'
-          })
-          
-          if (result.statusCode === 200) {
-            const data = JSON.parse(result.body.content)
-            if (data['dist-tags'] && data['dist-tags'].latest) {
-              console.log('从 npm registry 获取当前版本:', data['dist-tags'].latest)
-              return data['dist-tags'].latest
-            }
-          }
-        } catch (backupError) {
-          console.error('备用方案也失败:', backupError.message)
-        }
-        
-        // 最后使用默认值
         console.log('使用默认版本: 1.0.0')
         return '1.0.0'
       } catch (e) {
