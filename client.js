@@ -197,18 +197,50 @@ return {
                   fontWeight: '500'
                 }
               }, 'DSH 更新'),
-              React.createElement('button', {
-                onClick: checkForUpdates,
-                disabled: state.checking,
+              React.createElement('div', {
                 style: {
-                  padding: '4px 12px',
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  backgroundColor: state.checking ? '#f5f5f5' : 'white',
-                  cursor: state.checking ? 'not-allowed' : 'pointer',
-                  fontSize: '14px'
+                  display: 'flex',
+                  gap: '8px'
                 }
-              }, state.checking ? '检查中...' : '检查更新')
+              },
+                React.createElement('button', {
+                  onClick: checkForUpdates,
+                  disabled: state.checking,
+                  style: {
+                    padding: '4px 12px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    backgroundColor: state.checking ? '#f5f5f5' : 'white',
+                    cursor: state.checking ? 'not-allowed' : 'pointer',
+                    fontSize: '14px'
+                  }
+                }, state.checking ? '检查中...' : '检查更新'),
+                React.createElement('button', {
+                  onClick: async () => {
+                    console.log('测试网络连接...')
+                    try {
+                      const result = await host.call('test-network')
+                      console.log('网络测试结果:', result)
+                      if (result.success) {
+                        alert('网络测试成功！请查看控制台日志')
+                      } else {
+                        alert('网络测试失败: ' + result.error)
+                      }
+                    } catch (e) {
+                      console.error('网络测试失败:', e)
+                      alert('网络测试失败: ' + e.message)
+                    }
+                  },
+                  style: {
+                    padding: '4px 8px',
+                    border: '1px solid #ddd',
+                    borderRadius: '4px',
+                    backgroundColor: '#f8f9fa',
+                    cursor: 'pointer',
+                    fontSize: '12px'
+                  }
+                }, '测试网络')
+              )
             ),
             state.currentVersion && React.createElement('div', {
               style: {

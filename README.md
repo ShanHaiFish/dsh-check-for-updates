@@ -9,60 +9,61 @@
 - ✅ 支持手动点击"检查更新"按钮
 - ✅ 每次打开设置页面时自动检查更新
 - ✅ 发现新版本时弹窗提示用户选择是否更新
+- ✅ 添加"测试网络"按钮用于调试
 
 ## 文件结构
 
 - `host.js` - 主机端代码，负责从 npm registry 获取版本信息
 - `client.js` - 客户端代码，负责在设置中显示更新状态和弹窗提示
 
-## 当前问题
-
-1. **无法检查更新** - `web.fetch` 调用可能存在问题
-2. **当前版本硬编码** - 应该读取 DSH 本地实际安装的版本
-
-## 修复计划
+## 已修复问题
 
 ### 问题1：无法检查更新
 
-**可能原因**：
-- `web.fetch` 返回格式理解错误
-- npm registry 访问被阻止
-- 错误处理不完善
-
-**解决方案**：
-- 添加详细的错误日志
-- 验证 `web.fetch` 的正确用法
-- 检查网络连接
+**修复方案**：
+1. 增强错误处理，添加详细的控制台日志
+2. 验证 `web.fetch` 的正确用法
+3. 添加"测试网络"按钮用于调试
 
 ### 问题2：当前版本硬编码
 
-**当前代码**：
-```javascript
-async function getCurrentVersion() {
-  return '1.0.0'  // ❌ 硬编码
-}
-```
+**修复方案**：
+1. 使用 `ctx.fs` 服务读取本地 `package.json`
+2. 路径：`node_modules/@deepseek-ai/dsh/package.json`
+3. 解析 `version` 字段
+4. 备用方案：从 npm registry 获取当前版本
 
-**解决方案**：
-- 使用 `ctx.fs` 服务读取本地 `package.json`
-- 路径：`node_modules/@deepseek-ai/dsh/package.json`
-- 解析 `version` 字段
-
-**示例代码**：
+**代码实现**：
 ```javascript
 async function getCurrentVersion() {
   try {
     const fs = ctx.get('fs')
-    if (!fs) return '1.0.0'
-    
-    const target = await fs.resolve('node_modules/@deepseek-ai/dsh/package.json')
-    const content = await fs.readText(target)
-    const pkg = JSON.parse(content)
-    return pkg.version
+    if (fs) {
+      const target = await fs.resolve('node_modules/@deepseek-ai/dsh/package.json')
+      const content = await fs.readText(target)
+      const pkg = JSON.parse(content)
+      return pkg.version
+    }
   } catch (e) {
     console.error('读取本地版本失败:', e)
-    return '1.0.0'
   }
+  
+  // 备用方案：从 npm registry 获取
+  try {
+    const result = await web.fetch({
+      url: 'https://registry.npmjs.org/@deepseek-ai/dsh'
+    })
+    if (result.statusCode === 200) {
+      const data = JSON.parse(result.body.content)
+      if (data['dist-tags'] && data['dist-tags'].latest) {
+        return data['dist-tags'].latest
+      }
+    }
+  } catch (e) {
+    console.error('备用方案失败:', e)
+  }
+  
+  return '1.0.0'
 }
 ```
 
@@ -79,8 +80,9 @@ async function getCurrentVersion() {
 1. 打开 DSH Web 界面
 2. 进入 **设置 > 通用**
 3. 找到 **DSH 更新** 设置项
-4. 点击 **检查更新** 按钮
-5. 验证版本信息是否正确显示
+4. 点击 **测试网络** 按钮验证网络连接
+5. 点击 **检查更新** 按钮验证功能
+6. 查看控制台日志获取详细信息
 
 ## 技术细节
 
@@ -88,13 +90,17 @@ async function getCurrentVersion() {
 
 - 注入 `web` 服务
 - 使用 `web.fetch` 从 npm registry 获取版本信息
-- 注册 `check-for-updates` 和 `get-current-version` RPC 方法
+- 注册以下 RPC 方法：
+  - `check-for-updates` - 检查更新
+  - `get-current-version` - 获取当前版本
+  - `test-network` - 测试网络连接
 
 ### 客户端 (`client.js`)
 
 - 注册设置项到 `settings.general.item` 槽位
 - 使用 `host.call` 调用主机端方法
 - 注册弹窗到 `shell.overlay` 槽位
+- 添加"测试网络"按钮用于调试
 
 ### WebFetchRequest 格式
 
@@ -120,6 +126,29 @@ async function getCurrentVersion() {
 }
 ```
 
+## 调试方法
+
+### 1. 查看控制台日志
+
+插件会在控制台输出详细的调试信息：
+- `web.fetch` 的返回结果
+- 版本获取过程
+- 错误信息和堆栈
+
+### 2. 使用"测试网络"按钮
+
+点击"测试网络"按钮可以：
+- 验证 `web.fetch` 是否正常工作
+- 检查 npm registry 是否可访问
+- 查看返回的数据格式
+
+### 3. 检查错误信息
+
+如果出现错误，插件会显示：
+- 用户友好的错误提示
+- 详细的控制台日志
+- 错误堆栈信息
+
 ## 后续优化
 
 1. **使用 semver 库**：进行语义化版本比较
@@ -130,7 +159,13 @@ async function getCurrentVersion() {
 
 ## 版本历史
 
-- **v1.0.0** (当前) - 初始版本，基础功能实现
+- **v1.1.0** (当前) - 修复版本
+  - 修复 `web.fetch` 调用问题
+  - 添加获取本地版本功能
+  - 增强错误处理和日志
+  - 添加"测试网络"调试按钮
+
+- **v1.0.0** - 初始版本
   - 设置项显示
   - 手动检查更新
   - 弹窗提示

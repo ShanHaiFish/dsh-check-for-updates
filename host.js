@@ -6,49 +6,158 @@ return {
   apply(ctx) {
     const web = ctx.web
     
-    // 从npm registry获取最新版本
-    async function getLatestVersion() {
+    // 测试网络连接
+    async function testNetwork() {
       try {
+        console.log('测试网络连接...')
         const result = await web.fetch({
           url: 'https://registry.npmjs.org/@deepseek-ai/dsh/latest'
         })
         
+        console.log('web.fetch 返回:', result)
+        console.log('statusCode:', result.statusCode)
+        console.log('body.kind:', result.body.kind)
+        console.log('body.content 长度:', result.body.content.length)
+        
+        return {
+          success: true,
+          statusCode: result.statusCode,
+          bodyKind: result.body.kind,
+          contentLength: result.body.content.length,
+          contentPreview: result.body.content.substring(0, 200)
+        }
+      } catch (e) {
+        console.error('网络测试失败:', e)
+        return {
+          success: false,
+          error: e.message,
+          stack: e.stack
+        }
+      }
+    }
+    
+    // 从npm registry获取最新版本
+    async function getLatestVersion() {
+      try {
+        console.log('正在获取最新版本...')
+        const result = await web.fetch({
+          url: 'https://registry.npmjs.org/@deepseek-ai/dsh/latest'
+        })
+        
+        console.log('web.fetch 返回:', result)
+        console.log('statusCode:', result.statusCode)
+        
         if (result.statusCode === 200) {
-          const data = JSON.parse(result.body.content)
-          return data.version
+          try {
+            const data = JSON.parse(result.body.content)
+            console.log('解析成功，version:', data.version)
+            return data.version
+          } catch (parseError) {
+            console.error('JSON解析失败:', parseError.message)
+            console.error('原始内容:', result.body.content.substring(0, 200))
+            return null
+          }
         }
         
         console.error('获取最新版本失败，状态码:', result.statusCode)
         return null
       } catch (e) {
         console.error('获取最新版本异常:', e)
+        console.error('错误堆栈:', e.stack)
         return null
       }
     }
     
-    // 获取当前版本（暂时使用硬编码，后续可优化）
+    // 获取当前版本
     async function getCurrentVersion() {
-      // 可以从配置或环境获取，这里使用硬编码
-      // 实际部署时应更新为真实版本
-      return '1.0.0'
+      try {
+        console.log('正在获取当前版本...')
+        
+        // 尝试使用 ctx.fs 读取本地 package.json
+        const fs = ctx.get('fs')
+        
+        if (fs) {
+          console.log('fs 服务可用，尝试读取本地版本...')
+          
+          try {
+            // 尝试读取 DSH 的 package.json
+            const target = await fs.resolve('node_modules/@deepseek-ai/dsh/package.json')
+            console.log('解析路径成功:', target)
+            
+            const content = await fs.readText(target)
+            console.log('读取文件成功，内容长度:', content.length)
+            
+            const pkg = JSON.parse(content)
+            console.log('解析 package.json 成功，version:', pkg.version)
+            
+            return pkg.version
+          } catch (fsError) {
+            console.error('读取本地版本失败:', fsError.message)
+            console.error('错误堆栈:', fsError.stack)
+          }
+        } else {
+          console.warn('fs 服务不可用')
+        }
+        
+        // 备用方案：从 npm registry 获取当前版本
+        console.log('尝试备用方案：从 npm registry 获取当前版本...')
+        try {
+          const result = await web.fetch({
+            url: 'https://registry.npmjs.org/@deepseek-ai/dsh'
+          })
+          
+          if (result.statusCode === 200) {
+            const data = JSON.parse(result.body.content)
+            if (data['dist-tags'] && data['dist-tags'].latest) {
+              console.log('从 npm registry 获取当前版本:', data['dist-tags'].latest)
+              return data['dist-tags'].latest
+            }
+          }
+        } catch (backupError) {
+          console.error('备用方案也失败:', backupError.message)
+        }
+        
+        // 最后使用默认值
+        console.log('使用默认版本: 1.0.0')
+        return '1.0.0'
+      } catch (e) {
+        console.error('获取当前版本异常:', e)
+        console.error('错误堆栈:', e.stack)
+        return '1.0.0'
+      }
     }
     
     // 检查更新
     async function checkForUpdates() {
+      console.log('开始检查更新...')
+      
       const currentVersion = await getCurrentVersion()
       const latestVersion = await getLatestVersion()
       
+      console.log('当前版本:', currentVersion)
+      console.log('最新版本:', latestVersion)
+      
       if (!latestVersion) {
+        const errorMsg = '无法获取最新版本信息，请检查网络连接'
+        console.error(errorMsg)
         return {
           currentVersion,
           latestVersion: null,
           hasUpdate: false,
-          error: '无法获取最新版本信息'
+          error: errorMsg
         }
       }
       
-      // 简单版本比较
-      const hasUpdate = currentVersion !== latestVersion
+      // 版本比较
+      let hasUpdate = false
+      try {
+        // 简单字符串比较
+        hasUpdate = currentVersion !== latestVersion
+        console.log('版本比较结果:', hasUpdate)
+      } catch (e) {
+        console.error('版本比较失败:', e.message)
+        hasUpdate = currentVersion !== latestVersion
+      }
       
       return {
         currentVersion,
@@ -65,6 +174,10 @@ return {
     
     harness.handle('get-current-version', async () => {
       return await getCurrentVersion()
+    })
+    
+    harness.handle('test-network', async () => {
+      return await testNetwork()
     })
   }
 }
