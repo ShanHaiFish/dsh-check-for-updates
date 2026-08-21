@@ -6,6 +6,12 @@
 
 一个用于检查 DSH (DeepSeek Harness) 更新的动态 Cordis 插件。
 
+## 截图 (Screenshots)
+
+| 左下方浮动更新弹窗 | 设置 > 通用 · DSH 更新入口 |
+| --- | --- |
+| ![更新弹窗](docs/screenshots/update-popup.png) | ![设置入口](docs/screenshots/settings-entry.png) |
+
 ## 安装（静态 bundle，推荐）
 
 本仓库同时提供两种形态：
