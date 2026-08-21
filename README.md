@@ -1,6 +1,7 @@
 # DSH 更新检查插件
 
 ![GitHub Release](https://img.shields.io/github/v/release/ShanHaiFish/dsh-check-for-updates)
+![npm version](https://img.shields.io/npm/v/dsh-check-for-updates)
 ![License](https://img.shields.io/github/license/ShanHaiFish/dsh-check-for-updates)
 ![GitHub Stars](https://img.shields.io/github/stars/ShanHaiFish/dsh-check-for-updates)
 
@@ -26,12 +27,17 @@
 | 动态插件（回退） | `host.js` + `client.js` | 否，需每次重启后 `cordis_define`/`cordis_run` |
 
 ```sh
+# 从 npm（推荐，已发布到 npmjs）：
+dsh plugin --profile web add dsh-check-for-updates
+
 # 从 GitHub：
 dsh plugin --profile web add github:ShanHaiFish/dsh-check-for-updates
 
 # 本地开发用 file: 指向本仓库（注意路径不能含空格）：
 dsh plugin --profile web add "file:/absolute/path/to/dsh-check-for-updates"
 ```
+
+> npmjs: [dsh-check-for-updates](https://www.npmjs.com/package/dsh-check-for-updates)
 
 > Mac/Linux 上若路径含空格或非 ASCII（如本机 `...2026-DeepSeekHarness相关\...`），建议先
 > 复制到无空格的路径再 `file:` 安装。
