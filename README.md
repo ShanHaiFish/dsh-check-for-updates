@@ -18,7 +18,20 @@
 
 ## 版本历史
 
-### v1.10.0 (当前版本)
+### v1.11.0 (当前版本)
+
+**修改内容**：
+1. **主题适配**：客户端 UI 不再使用硬编码颜色（`#007bff`/`#28a745`/`#dc3545` 等），
+   全部改用 DSH 语义化主题 token `--dsw-alias-*`：
+   - 主按钮（更新）：`var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary))`，
+     文字 `var(--dsw-alias-label-primary-foreground, var(--dsw-alias-bg-layer-1))`
+   - 成功/有新版本：`state-success-primary`；错误：`state-error-primary`；更新中：`state-warn-primary`
+   - 边框 `border-l1/l2`；表面 `bg-layer-*`/`bg-module-platform`；文字 `label-primary/secondary/tertiary`
+2. 对不确定存在的 token 使用 `var(--a, fallback)` 兜底，保证任意主题（含用户安装的主题插件、
+   亮/暗色）下与整体配色一致。
+3. 主机端无改动（仍 v1.10.0）。
+
+### v1.10.0
 
 **修改内容**：
 1. **新增【更新】按钮自动执行升级**（方案 B）：

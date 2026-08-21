@@ -1,10 +1,16 @@
 // DSH 更新检查插件 - 客户端代码
-// 版本 v1.10.0
-// - 不再在打开设置时自动检查更新（不触发网络请求）。
-// - 打开设置时仅显示当前版本（本地读取），
-//   只有点击【检查更新】才发起完整的最新版本检查。
-// - 检测到新版本时提供【更新】按钮：点击后调用 perform-update，
-//   自动安装并显示结果（成功后引导重启 DSH 生效）。
+// 版本 v1.11.0
+// 主题适配：不再使用硬编码颜色，全部改用 DSH 语义化主题 token（--dsw-alias-*）。
+// 这样在用户安装其它主题插件、或切换亮/暗色时，本插件 UI 自动跟随整体配色，
+// 与设置页其它项目保持一致。对不确定存在的 token 使用 var(--a, fallback) 兜底。
+//
+// 关键映射（与官方设置 UI 一致）：
+//   主按钮背景 var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary))
+//   主按钮文字 var(--dsw-alias-label-primary-foreground, var(--dsw-alias-bg-layer-1))
+//   成功/有新版本 var(--dsw-alias-state-success-primary)
+//   错误 var(--dsw-alias-state-error-primary)   警告/更新中 var(--dsw-alias-state-warn-primary)
+//   次级按钮/边框 var(--dsw-alias-border-l2)     表面 var(--dsw-alias-bg-layer-*)
+//   正文 var(--dsw-alias-label-primary) 次要 label-secondary 弱化 label-tertiary
 
 return {
   apply(ctx) {
@@ -100,6 +106,65 @@ return {
       }
     }
 
+    // 主题变量引用（含兜底，保证任意主题下可用）
+    const V = {
+      border: 'var(--dsw-alias-border-l2)',
+      borderSoft: 'var(--dsw-alias-border-l1)',
+      bgLayer1: 'var(--dsw-alias-bg-layer-1)',
+      bgLayer2: 'var(--dsw-alias-bg-layer-2)',
+      bgModule: 'var(--dsw-alias-bg-module-platform)',
+      textSecondary: 'var(--dsw-alias-label-secondary)',
+      textTertiary: 'var(--dsw-alias-label-tertiary)',
+      textPrimary: 'var(--dsw-alias-label-primary, inherit)',
+      success: 'var(--dsw-alias-state-success-primary)',
+      error: 'var(--dsw-alias-state-error-primary)',
+      warn: 'var(--dsw-alias-state-warn-primary)',
+      // 主按钮：fill/foreground 若当前主题未定义则回落品牌色/亮底
+      primaryFill: 'var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary))',
+      primaryHover: 'var(--dsw-alias-button-primary-hover, var(--dsw-alias-brand-primary))',
+      primaryForeground: 'var(--dsw-alias-label-primary-foreground, var(--dsw-alias-bg-layer-1))'
+    }
+
+    function rowSeparator() {
+      return { padding: '12px 0', borderBottom: '1px solid ' + V.borderSoft }
+    }
+    function secondaryButtonStyle(active) {
+      return {
+        padding: '4px 12px',
+        border: '1px solid ' + V.border,
+        borderRadius: '4px',
+        backgroundColor: active ? V.bgModule : 'transparent',
+        color: V.textSecondary,
+        cursor: active ? 'not-allowed' : 'pointer',
+        fontSize: '14px'
+      }
+    }
+    function primaryButtonStyle(progress) {
+      return {
+        marginTop: '10px',
+        padding: '6px 16px',
+        border: 'none',
+        borderRadius: '4px',
+        backgroundColor: progress ? V.warn : V.primaryFill,
+        color: V.primaryForeground,
+        cursor: progress ? 'not-allowed' : 'pointer',
+        fontSize: '14px'
+      }
+    }
+    function logBlockStyle() {
+      return {
+        margin: '8px 0 0 0',
+        padding: '8px',
+        backgroundColor: V.bgLayer2,
+        borderRadius: '4px',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-all',
+        fontSize: '11px',
+        lineHeight: '1.5',
+        color: V.textTertiary
+      }
+    }
+
     // 注册设置项
     slots.inject('settings.general.item', () => {
       slots.register(
@@ -125,12 +190,7 @@ return {
             return () => { cancelled = true }
           }, [])
 
-          return React.createElement('div', {
-            style: {
-              padding: '12px 0',
-              borderBottom: '1px solid #eee'
-            }
-          },
+          return React.createElement('div', { style: rowSeparator() },
             React.createElement('div', {
               style: {
                 display: 'flex',
@@ -140,35 +200,22 @@ return {
               }
             },
               React.createElement('span', {
-                style: {
-                  fontWeight: '500'
-                }
+                style: { fontWeight: '500', color: V.textPrimary }
               }, 'DSH 更新'),
-              React.createElement('div', {
-                style: {
-                  display: 'flex',
-                  gap: '8px'
-                }
-              },
+              React.createElement('div', { style: { display: 'flex', gap: '8px' } },
                 React.createElement('button', {
                   onClick: checkForUpdates,
                   disabled: state.checking || state.updating,
-                  style: {
-                    padding: '4px 12px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    backgroundColor: state.checking ? '#f5f5f5' : 'white',
-                    cursor: state.checking ? 'not-allowed' : 'pointer',
-                    fontSize: '14px'
-                  }
+                  style: secondaryButtonStyle(state.checking || state.updating)
                 }, state.checking ? '检查中...' : '检查更新'),
                 React.createElement('button', {
                   onClick: testNetwork,
                   style: {
                     padding: '4px 8px',
-                    border: '1px solid #ddd',
+                    border: '1px solid ' + V.border,
                     borderRadius: '4px',
-                    backgroundColor: '#f8f9fa',
+                    backgroundColor: 'transparent',
+                    color: V.textSecondary,
                     cursor: 'pointer',
                     fontSize: '12px'
                   }
@@ -176,110 +223,42 @@ return {
               )
             ),
             state.currentVersion && React.createElement('div', {
-              style: {
-                fontSize: '14px',
-                color: '#666',
-                marginBottom: '4px'
-              }
+              style: { fontSize: '14px', color: V.textSecondary, marginBottom: '4px' }
             }, '当前版本: ' + state.currentVersion),
             state.latestVersion && React.createElement('div', {
-              style: {
-                fontSize: '14px',
-                color: state.hasUpdate ? '#28a745' : '#666'
-              }
+              style: { fontSize: '14px', color: state.hasUpdate ? V.success : V.textSecondary }
             }, '最新版本: ' + state.latestVersion),
             state.hasUpdate && React.createElement('div', {
-              style: {
-                fontSize: '14px',
-                color: '#28a745',
-                marginTop: '4px'
-              }
+              style: { fontSize: '14px', color: V.success, marginTop: '4px' }
             }, '有新版本可用！'),
             state.hasUpdate && React.createElement('button', {
               onClick: performUpdate,
               disabled: state.updating,
-              style: {
-                marginTop: '10px',
-                padding: '6px 16px',
-                border: 'none',
-                borderRadius: '4px',
-                backgroundColor: state.updating ? '#f5a623' : '#007bff',
-                color: 'white',
-                cursor: state.updating ? 'not-allowed' : 'pointer',
-                fontSize: '14px'
-              }
+              style: primaryButtonStyle(state.updating)
             }, state.updating ? '更新中...' : '更新到 ' + state.latestVersion),
             state.updateMessage && React.createElement('div', {
-              style: {
-                fontSize: '14px',
-                color: '#28a745',
-                marginTop: '6px'
-              }
+              style: { fontSize: '14px', color: V.success, marginTop: '6px' }
             }, state.updateMessage),
             (state.updateMessage || state.hasUpdate) && React.createElement('div', {
-              style: {
-                fontSize: '12px',
-                color: '#888',
-                marginTop: '4px'
-              }
+              style: { fontSize: '12px', color: V.textTertiary, marginTop: '4px' }
             }, '升级完成后请重启 DSH（重新运行启动命令，如 dsh web）以加载新版本'),
             state.error && React.createElement('div', {
-              style: {
-                fontSize: '14px',
-                color: '#dc3545',
-                marginTop: '6px'
-              }
+              style: { fontSize: '14px', color: V.error, marginTop: '6px' }
             }, '错误: ' + state.error),
             state.lastChecked && React.createElement('div', {
-              style: {
-                fontSize: '12px',
-                color: '#999',
-                marginTop: '4px'
-              }
+              style: { fontSize: '12px', color: V.textTertiary, marginTop: '4px' }
             }, '上次检查: ' + state.lastChecked.toLocaleString()),
             state.logTail && React.createElement('details', {
-              style: {
-                marginTop: '8px',
-                fontSize: '12px',
-                color: '#999'
-              }
+              style: { marginTop: '8px', fontSize: '12px', color: V.textTertiary }
             },
               React.createElement('summary', null, '执行日志'),
-              React.createElement('pre', {
-                style: {
-                  margin: '8px 0 0 0',
-                  padding: '8px',
-                  backgroundColor: '#f8f9fa',
-                  borderRadius: '4px',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
-                  fontSize: '11px',
-                  lineHeight: '1.5',
-                  maxHeight: '200px',
-                  overflow: 'auto'
-                }
-              }, state.logTail)
+              React.createElement('pre', Object.assign({ maxHeight: '200px', overflow: 'auto' }, logBlockStyle()), state.logTail)
             ),
             state.debug && state.debug.length > 0 && React.createElement('details', {
-              style: {
-                marginTop: '8px',
-                fontSize: '12px',
-                color: '#999'
-              }
+              style: { marginTop: '8px', fontSize: '12px', color: V.textTertiary }
             },
               React.createElement('summary', null, '调试信息 (' + state.debug.length + ' 条)'),
-              React.createElement('pre', {
-                style: {
-                  margin: '8px 0 0 0',
-                  padding: '8px',
-                  backgroundColor: '#f8f9fa',
-                  borderRadius: '4px',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
-                  fontSize: '11px',
-                  lineHeight: '1.5'
-                }
-              }, state.debug.join('\n'))
+              React.createElement('pre', logBlockStyle(), state.debug.join('\n'))
             )
           )
         }
