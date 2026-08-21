@@ -18,18 +18,96 @@
 
 ## 版本历史
 
-### v1.2.0 (当前版本)
+### v1.9.0 (当前版本)
+
+**修改内容**：
+1. **只手动检查更新**：打开设置页**不再自动**发起网络检查；挂载时仅本地读取并显示「当前版本」，只有点击「检查更新」才触发最新版本检查。
+2. **注册 curl/subprocess fetch 提供方**（`updck-curl`）：本部署没有内置 fetch 提供方，`web.fetch` 原本永远报 `no usable web provider is registered`。插件用 `subprocess` 启动 `curl.exe` 抓取 npm registry，注册为 `WebFetchProvider`，让 `web.fetch` 真正可用。
+3. **最新版本不再取 `/latest` 标签**：npm 的 `latest` 标签可能滞后（如仍指向 `0.1.0-rc.7`，而最新发布在 `next` 标签是 `0.1.0-rc.8`）。改为读取完整 packument `https://registry.npmjs.org/@deepseek-ai/dsh` 的 `versions`，用内置的小型 semver 比较器取**实际发布的最高版本**。
+4. 保留 `web.search` 作为最后兜底。
+
+**根因回顾**：
+- `tool-web` 的 `fetch: true` 只注册模型侧 `web_fetch` 工具，**并不注册 fetch 后端**；fetch 后端必须由某插件调用 `web.registerFetchProvider` 注册——本部署没有，需插件自行提供。
+- `/latest` 返回的是 `latest` dist-tag，可能滞后于 `next` 上的新 rc 版本。
+
+**当前方案**：
+- 当前版本：`fs.resolve/readText` 读取本地 `@deepseek-ai/dsh/package.json`
+- 最新版本：curl 抓 npm packument → semver 取最高版本 → 失败降级 `web.search`
+
+**注意事项**：
+- 因为会 `spawn curl`（subprocess），安全审查判定为 BLOCK（120/300），需在插件安全白名单放行 `updck` 家族后运行。
+- curl 不可用或 spawn 被拦截时，会降级 `web.search`（尽力而为）+ 显示错误提示。
+
+### v1.7.0
+
+**修改内容**：
+1. 修复"当前版本: 0.0.0"问题 - 使用已验证的本地版本号 `0.1.0-rc.7`
+2. 修复"无法获取最新版本信息"问题
+3. 修改 `C:\Users\whaow\.dsh\profiles\web\cordis.patch.yml` 配置，启用 `fetch: true`（需要重启 dsh 生效）
+4. 最新版本通过 `web.fetch` 请求 `https://registry.npmjs.org/@deepseek-ai/dsh/latest` 获取
+
+**排查过程（已确认的根因）**：
+- `web.fetch` 被 DSH 默认配置 `fetch: false` 禁用（`dsh-base/cordis.patch.yml`）
+- `web.search` 返回的 snippet 全部为空，无法提取版本号
+- 动态插件沙箱禁止 `require` 和 `globalThis.fetch`，只能使用 Cordis 服务
+- 安全审查将"文件读取 + 网络访问"组合判定为数据外传路径（high），导致 ASK 审批
+
+**当前方案**：
+- 当前版本：写死为 `0.1.0-rc.7`（升级 DSH 后需手动更新此值）
+- 最新版本：`web.fetch` 请求 npm registry
+
+**注意事项**：
+- ⚠️ 需要在 `cordis.patch.yml` 中启用 `fetch: true` 并**重启 DSH** 后，`web.fetch` 才可用
+- 重启前点击"测试网络"会显示 web.fetch 不可用
+- 升级 DSH 后，记得更新 `host.js` 中的 `CURRENT_VERSION` 常量
+
+### v1.6.0
+
+**修改内容**：
+1. 修复 `no usable web provider is registered` 错误
+2. 发现 DSH 配置中 `fetch: false`，web fetch 功能被禁用
+3. 改用 `web.search()` 搜索 npm 包版本信息
+4. 使用 `fs` 服务读取本地 `package.json` 获取当前版本
+5. 从搜索结果中提取版本号
+
+**根本原因**：
+- DSH 默认配置 `fetch: false`，禁用了 web fetch 功能
+- 动态插件无法使用 `require` 或 `globalThis.fetch`
+- 必须使用 Cordis 服务（`ctx.web`, `ctx.fs`）
+
+**解决方案**：
+- 当前版本：使用 `fs.resolve()` + `fs.readText()` 读取本地 `@deepseek-ai/dsh/package.json`
+- 最新版本：使用 `web.search()` 搜索 "@deepseek-ai/dsh npm version" 并提取版本号
+
+**注意事项**：
+- 搜索结果可能不准确，版本号提取依赖正则匹配
+- 如果需要更准确的版本检测，需要在 DSH 配置中启用 `fetch: true`
+
+### v1.4.0
+
+**修改内容**：
+1. 修复 `no usable web provider is registered` 错误
+2. 移除对 `web` 和 `shell` 服务的硬依赖（`inject`）
+3. 改用 `globalThis.fetch` 直接发起网络请求（Node.js 18+）
+4. 简化代码结构，移除复杂的 provider 注册逻辑
+5. 所有网络请求统一使用 `fetchUrl()` 封装函数
+
+### v1.3.0
+
+**修改内容**：
+1. 修复 `getCurrentVersion()` 读取本地实际安装版本的 bug
+2. 注入 `shell` 服务，通过 `node -e` 命令读取本地 `@deepseek-ai/dsh/package.json` 的版本
+3. `getLatestVersion()` 继续从 npm registry 获取最新版本
+4. 添加备用方案：本地读取失败时回退到 npm registry dist-tags
+5. 修复版本比较逻辑（之前 current 和 latest 都从 npm 获取，永远相同）
+
+### v1.2.0
 
 **修改内容**：
 1. 移除 `fs` 依赖，简化代码
 2. 当前版本和最新版本都从 npm registry 获取
 3. 增强错误处理和日志输出
 4. 添加测试网络按钮用于调试
-
-**主要改进**：
-- 简化 `getCurrentVersion()` 函数
-- 使用 `web.fetch` 获取所有版本信息
-- 避免 `fs` 服务不可用的问题
 
 ### v1.1.0
 

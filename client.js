@@ -1,11 +1,14 @@
 // DSH 更新检查插件 - 客户端代码
-// 负责在设置中显示更新状态和弹窗提示
+// 版本 v1.8.0
+// - 不再在打开设置时自动检查更新（不触发网络请求）。
+// - 打开设置时仅显示当前版本（本地读取），
+//   只有点击【检查更新】才发起完整的最新版本检查。
 
 return {
   apply(ctx) {
     const slots = ctx.get('slots')
     if (slots === undefined) return
-    
+
     // 状态管理
     let updateState = {
       currentVersion: null,
@@ -13,20 +16,20 @@ return {
       hasUpdate: false,
       checking: false,
       error: null,
-      lastChecked: null
+      lastChecked: null,
+      debug: []
     }
-    
-    // 更新状态
+
     function setUpdateState(newState) {
       updateState = { ...updateState, ...newState }
-      // 触发UI更新
       if (updateState.onUpdate) {
         updateState.onUpdate(updateState)
       }
     }
-    
-    // 检查更新
+
+    // 检查更新（仅点击按钮时触发网络请求）
     async function checkForUpdates() {
+      if (updateState.checking) return
       setUpdateState({ checking: true, error: null })
       try {
         const result = await host.call('check-for-updates')
@@ -36,14 +39,9 @@ return {
           hasUpdate: result.hasUpdate,
           checking: false,
           error: result.error,
-          lastChecked: new Date()
+          lastChecked: new Date(),
+          debug: result.debug || []
         })
-        
-        // 如果有更新，显示弹窗
-        if (result.hasUpdate) {
-          showUpdateModal(result)
-        }
-        
         return result
       } catch (e) {
         setUpdateState({
@@ -53,131 +51,49 @@ return {
         return null
       }
     }
-    
-    // 显示更新弹窗
-    function showUpdateModal(updateInfo) {
-      // 注册覆盖层
-      slots.inject('shell.overlay', () => {
-        slots.register(
-          { name: 'shell.overlay', id: 'update-modal' },
-          (props) => {
-            return React.createElement('div', {
-              style: {
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0,0,0,0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 1000
-              }
-            },
-              React.createElement('div', {
-                style: {
-                  backgroundColor: 'white',
-                  borderRadius: '8px',
-                  padding: '24px',
-                  maxWidth: '400px',
-                  width: '90%',
-                  boxShadow: '0 4px 20px rgba(0,0,0,0.15)'
-                }
-              },
-                React.createElement('h3', {
-                  style: {
-                    margin: '0 0 16px 0',
-                    fontSize: '18px',
-                    fontWeight: '600'
-                  }
-                }, '发现新版本'),
-                React.createElement('p', {
-                  style: {
-                    margin: '0 0 8px 0',
-                    color: '#666'
-                  }
-                }, `当前版本: ${updateInfo.currentVersion}`),
-                React.createElement('p', {
-                  style: {
-                    margin: '0 0 20px 0',
-                    color: '#666'
-                  }
-                }, `最新版本: ${updateInfo.latestVersion}`),
-                React.createElement('div', {
-                  style: {
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    gap: '12px'
-                  }
-                },
-                  React.createElement('button', {
-                    onClick: () => {
-                      // 关闭弹窗
-                      slots.inject('shell.overlay', () => {
-                        slots.register(
-                          { name: 'shell.overlay', id: 'update-modal' },
-                          () => null
-                        )
-                      })
-                    },
-                    style: {
-                      padding: '8px 16px',
-                      border: '1px solid #ddd',
-                      borderRadius: '4px',
-                      backgroundColor: 'white',
-                      cursor: 'pointer'
-                    }
-                  }, '稍后再说'),
-                  React.createElement('button', {
-                    onClick: () => {
-                      // 打开npm页面
-                      window.open('https://www.npmjs.com/package/@deepseek-ai/dsh', '_blank')
-                      // 关闭弹窗
-                      slots.inject('shell.overlay', () => {
-                        slots.register(
-                          { name: 'shell.overlay', id: 'update-modal' },
-                          () => null
-                        )
-                      })
-                    },
-                    style: {
-                      padding: '8px 16px',
-                      border: 'none',
-                      borderRadius: '4px',
-                      backgroundColor: '#007bff',
-                      color: 'white',
-                      cursor: 'pointer'
-                    }
-                  }, '立即更新')
-                )
-              )
-            )
-          }
-        )
-      })
+
+    // 测试网络
+    async function testNetwork() {
+      console.log('测试网络连接...')
+      try {
+        const result = await host.call('test-network')
+        console.log('网络测试结果:', result)
+        if (result.success) {
+          alert('网络测试成功！' + (result.message ? ' ' + result.message : ''))
+        } else {
+          alert('网络测试失败: ' + result.error)
+        }
+      } catch (e) {
+        console.error('网络测试失败:', e)
+        alert('网络测试失败: ' + e.message)
+      }
     }
-    
+
     // 注册设置项
     slots.inject('settings.general.item', () => {
       slots.register(
         { name: 'settings.general.item', id: 'update-checker', order: 30 },
         (props) => {
           const [state, setState] = React.useState(updateState)
-          
-          // 订阅状态更新
+
           React.useEffect(() => {
             updateState.onUpdate = setState
             return () => {
               updateState.onUpdate = null
             }
           }, [])
-          
-          // 初始检查
+
+          // 打开设置时只显示当前版本（本地读取），不触发网络检查
           React.useEffect(() => {
-            checkForUpdates()
+            let cancelled = false
+            host.call('get-current-version')
+              .then((v) => {
+                if (!cancelled) setUpdateState({ currentVersion: v })
+              })
+              .catch(() => {})
+            return () => { cancelled = true }
           }, [])
-          
+
           return React.createElement('div', {
             style: {
               padding: '12px 0',
@@ -216,21 +132,7 @@ return {
                   }
                 }, state.checking ? '检查中...' : '检查更新'),
                 React.createElement('button', {
-                  onClick: async () => {
-                    console.log('测试网络连接...')
-                    try {
-                      const result = await host.call('test-network')
-                      console.log('网络测试结果:', result)
-                      if (result.success) {
-                        alert('网络测试成功！请查看控制台日志')
-                      } else {
-                        alert('网络测试失败: ' + result.error)
-                      }
-                    } catch (e) {
-                      console.error('网络测试失败:', e)
-                      alert('网络测试失败: ' + e.message)
-                    }
-                  },
+                  onClick: testNetwork,
                   style: {
                     padding: '4px 8px',
                     border: '1px solid #ddd',
@@ -248,13 +150,13 @@ return {
                 color: '#666',
                 marginBottom: '4px'
               }
-            }, `当前版本: ${state.currentVersion}`),
+            }, '当前版本: ' + state.currentVersion),
             state.latestVersion && React.createElement('div', {
               style: {
                 fontSize: '14px',
                 color: state.hasUpdate ? '#28a745' : '#666'
               }
-            }, `最新版本: ${state.latestVersion}`),
+            }, '最新版本: ' + state.latestVersion),
             state.hasUpdate && React.createElement('div', {
               style: {
                 fontSize: '14px',
@@ -268,14 +170,35 @@ return {
                 color: '#dc3545',
                 marginTop: '4px'
               }
-            }, `错误: ${state.error}`),
+            }, '错误: ' + state.error),
             state.lastChecked && React.createElement('div', {
               style: {
                 fontSize: '12px',
                 color: '#999',
                 marginTop: '4px'
               }
-            }, `上次检查: ${state.lastChecked.toLocaleString()}`)
+            }, '上次检查: ' + state.lastChecked.toLocaleString()),
+            state.debug && state.debug.length > 0 && React.createElement('details', {
+              style: {
+                marginTop: '8px',
+                fontSize: '12px',
+                color: '#999'
+              }
+            },
+              React.createElement('summary', null, '调试信息 (' + state.debug.length + ' 条)'),
+              React.createElement('pre', {
+                style: {
+                  margin: '8px 0 0 0',
+                  padding: '8px',
+                  backgroundColor: '#f8f9fa',
+                  borderRadius: '4px',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                  fontSize: '11px',
+                  lineHeight: '1.5'
+                }
+              }, state.debug.join('\n'))
+            )
           )
         }
       )
