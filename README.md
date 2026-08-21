@@ -8,9 +8,13 @@
 
 ## 截图 (Screenshots)
 
-| 左下方浮动更新弹窗 | 设置 > 通用 · DSH 更新入口 |
-| --- | --- |
-| ![更新弹窗](docs/screenshots/update-popup.png) | ![设置入口](docs/screenshots/settings-entry.png) |
+**① 左下方浮动更新弹窗** —— 首次打开页面自动检查到新版本时，在左下部「设置」按钮上方弹出提示卡片，提供【更新到 {版本}】与【稍后】；点「稍后」后该版本不再重复弹出。
+
+![更新弹窗](docs/screenshots/update-popup.png)
+
+**② 设置 > 通用 · DSH 更新入口** —— 手动「检查更新 / 测试网络」，展示当前版本与最新版本；有新版本时提供【更新到】按钮（升级完成后重启 DSH 生效）。
+
+![设置入口](docs/screenshots/settings-entry.png)
 
 ## 安装（静态 bundle，推荐）
 
