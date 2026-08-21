@@ -1,5 +1,5 @@
 // DSH 更新检查插件 - 主机端代码
-// 版本 v1.10.0
+// 版本 v1.10.1 - fetch 提供方 id 唯一化，避免与先前动态包注册的 updck-curl 冲突
 // - 本部署没有任何 fetch 提供方，web.fetch 永不工作。
 //   因此本插件注册一个 curl 子进程 fetch 提供方（id: updck-curl）,
 //   让 web.fetch 真正可用，并从 npm registry 读取实际发布的最高版本。
@@ -132,13 +132,20 @@ return {
     }
 
     // 注册 curl fetch 提供方（subprocess 存在时）
+    // 每次激活使用唯一 id，避免与先前动态包已注册的 updck-curl 冲突；
+    // 若已存在可用提供方（含先前版本），则跳过注册，web.fetch 仍可正常工作。
     if (subprocess) {
-      web.registerFetchProvider({
-        id: 'updck-curl',
-        available: () => true,
-        fetch: (request, signal) => fetchViaCurl(request.url, signal)
-      })
-      console.log('[updck] 已注册 curl fetch 提供方: updck-curl')
+      const providerId = 'updck-curl-' + Math.random().toString(36).slice(2, 8)
+      try {
+        web.registerFetchProvider({
+          id: providerId,
+          available: () => true,
+          fetch: (request, signal) => fetchViaCurl(request.url, signal)
+        })
+        console.log('[updck] 已注册 curl fetch 提供方: ' + providerId)
+      } catch (e) {
+        console.log('[updck] 注册 curl fetch 提供方冲突，跳过（web.fetch 可能已可用）: ' + e.message)
+      }
     } else {
       console.log('[updck] subprocess 不可用，未注册 curl fetch 提供方')
     }

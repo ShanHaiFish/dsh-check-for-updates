@@ -1,8 +1,15 @@
 // DSH 更新检查插件 - 客户端代码
-// 版本 v1.11.0
+// 版本 v1.12.0
 // 主题适配：不再使用硬编码颜色，全部改用 DSH 语义化主题 token（--dsw-alias-*）。
 // 这样在用户安装其它主题插件、或切换亮/暗色时，本插件 UI 自动跟随整体配色，
 // 与设置页其它项目保持一致。对不确定存在的 token 使用 var(--a, fallback) 兜底。
+//
+// v1.12.0 新增：
+//   - 首次打开 Web 页面时自动触发一次更新检查（页面加载即检查，单次，不随 HMR 重复）。
+//   - 检测到新版本时，在左下部「设置」按钮上方弹出提示卡片（shell.overlay），
+//     卡片内提供【更新到 {版本}】主按钮与【稍后】次级按钮。
+//   - 状态订阅改为多监听器（listeners: Set），让「设置项」与「弹窗」两个组件
+//     同时实时刷新，互不覆盖。
 //
 // 关键映射（与官方设置 UI 一致）：
 //   主按钮背景 var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary))
@@ -12,12 +19,18 @@
 //   次级按钮/边框 var(--dsw-alias-border-l2)     表面 var(--dsw-alias-bg-layer-*)
 //   正文 var(--dsw-alias-label-primary) 次要 label-secondary 弱化 label-tertiary
 
+// 模块作用域标志：保证「首次打开自动检查」每个页面加载只执行一次（跨 HMR 持久）。
+let autoStarted = false
+
+// 弹窗「稍后」记住的版本号（sessionStorage），同版本不重复弹窗。
+const DISMISS_KEY = 'dsh-updck-dismissed-version'
+
 return {
   apply(ctx) {
     const slots = ctx.get('slots')
     if (slots === undefined) return
 
-    // 状态管理
+    // 状态管理（多监听器）
     let updateState = {
       currentVersion: null,
       latestVersion: null,
@@ -28,19 +41,20 @@ return {
       updateMessage: null,
       logTail: null,
       lastChecked: null,
+      popupVisible: false,
       debug: []
     }
 
+    const listeners = new Set()
+
     function setUpdateState(newState) {
       updateState = { ...updateState, ...newState }
-      if (updateState.onUpdate) {
-        updateState.onUpdate(updateState)
-      }
+      for (const l of listeners) l(updateState)
     }
 
-    // 检查更新（仅点击按钮时触发网络请求）
+    // 检查更新（点击按钮或首次打开页面时触发网络请求）
     async function checkForUpdates() {
-      if (updateState.checking || updateState.updating) return
+      if (updateState.checking || updateState.updating) return null
       setUpdateState({ checking: true, error: null })
       try {
         const result = await host.call('check-for-updates')
@@ -63,6 +77,23 @@ return {
       }
     }
 
+    // 首次打开页面：自动检查一次；若有更新且本会话未「稍后」过该版本，则弹出提示。
+    async function autoCheck() {
+      const result = await checkForUpdates()
+      if (!result || !result.hasUpdate) return
+      let dismissed = null
+      try { dismissed = sessionStorage.getItem(DISMISS_KEY) } catch (e) { dismissed = null }
+      if (dismissed !== result.latestVersion) {
+        setUpdateState({ popupVisible: true })
+      }
+    }
+
+    // 关闭弹窗（记住版本，同版本不再弹出）
+    function dismissPopup() {
+      try { sessionStorage.setItem(DISMISS_KEY, updateState.latestVersion || '') } catch (e) { /* ignore */ }
+      setUpdateState({ popupVisible: false })
+    }
+
     // 自动更新（点击后执行安装）
     async function performUpdate() {
       if (updateState.updating) return
@@ -70,11 +101,13 @@ return {
       try {
         const result = await host.call('perform-update')
         if (result && result.updated) {
+          try { sessionStorage.setItem(DISMISS_KEY, result.installedVersion || '') } catch (e) { /* ignore */ }
           setUpdateState({
             updating: false,
             updateMessage: result.message,
             latestVersion: result.installedVersion,
             hasUpdate: false,
+            popupVisible: false,
             logTail: result.logTail
           })
         } else {
@@ -164,19 +197,96 @@ return {
         color: V.textTertiary
       }
     }
+    // 弹出卡片（设置按钮上方）样式
+    function popupCardStyle() {
+      return {
+        position: 'fixed',
+        bottom: '96px',
+        left: '16px',
+        zIndex: 10000,
+        width: '290px',
+        maxWidth: 'calc(100vw - 32px)',
+        padding: '14px 16px',
+        backgroundColor: V.bgLayer1,
+        border: '1px solid ' + V.border,
+        borderRadius: '10px',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+        color: V.textPrimary,
+        fontSize: '13px',
+        lineHeight: '1.5'
+      }
+    }
 
-    // 注册设置项
+    // ---------- 弹窗：左下部「设置」按钮上方提示 ----------
+    if (slots) {
+      slots.inject('shell.overlay', () => {
+        slots.register(
+          { name: 'shell.overlay', id: 'update-checker-popup', order: 10 },
+          () => {
+            const [state, setState] = React.useState(updateState)
+            React.useEffect(() => {
+              listeners.add(setState)
+              return () => listeners.delete(setState)
+            }, [])
+            if (!state.popupVisible || !state.hasUpdate) return null
+
+            return React.createElement('div', { style: popupCardStyle() },
+              React.createElement('div', {
+                style: { fontWeight: '600', marginBottom: '6px', color: V.textPrimary }
+              }, '有新版本可用'),
+              React.createElement('div', {
+                style: { fontSize: '13px', color: V.textSecondary, marginBottom: '4px' }
+              }, '当前 ' + (state.currentVersion || '?') + '  →  ' + state.latestVersion),
+              React.createElement('div', {
+                style: { fontSize: '13px', color: V.success }
+              }, '点击下方按钮立即更新'),
+              React.createElement('div', {
+                style: { display: 'flex', gap: '8px', marginTop: '12px', justifyContent: 'flex-end' }
+              },
+                React.createElement('button', {
+                  onClick: performUpdate,
+                  disabled: state.updating,
+                  style: {
+                    padding: '6px 14px',
+                    border: 'none',
+                    borderRadius: '6px',
+                    backgroundColor: state.updating ? V.warn : V.primaryFill,
+                    color: V.primaryForeground,
+                    cursor: state.updating ? 'not-allowed' : 'pointer',
+                    fontSize: '13px'
+                  }
+                }, state.updating ? '更新中...' : '更新到 ' + state.latestVersion),
+                React.createElement('button', {
+                  onClick: dismissPopup,
+                  disabled: state.updating,
+                  style: secondaryButtonStyle(state.updating)
+                }, '稍后')
+              ),
+              state.updating && React.createElement('div', {
+                style: { fontSize: '12px', color: V.textTertiary, marginTop: '8px' }
+              }, '正在安装 ' + state.latestVersion + '，请稍候…'),
+              state.updateMessage && React.createElement('div', {
+                style: { fontSize: '12px', color: V.success, marginTop: '8px' }
+              }, state.updateMessage),
+              state.error && React.createElement('div', {
+                style: { fontSize: '12px', color: V.error, marginTop: '8px' }
+              }, '错误: ' + state.error)
+            )
+          }
+        )
+      })
+    }
+
+    // ---------- 注册设置项 ----------
     slots.inject('settings.general.item', () => {
       slots.register(
         { name: 'settings.general.item', id: 'update-checker', order: 30 },
-        (props) => {
+        () => {
           const [state, setState] = React.useState(updateState)
 
           React.useEffect(() => {
-            updateState.onUpdate = setState
-            return () => {
-              updateState.onUpdate = null
-            }
+            listeners.add(setState)
+            return () => listeners.delete(setState)
           }, [])
 
           // 打开设置时只显示当前版本（本地读取），不触发网络检查
@@ -264,5 +374,11 @@ return {
         }
       )
     })
+
+    // 首次打开页面：触发一次自动检查
+    if (!autoStarted) {
+      autoStarted = true
+      autoCheck()
+    }
   }
 }
