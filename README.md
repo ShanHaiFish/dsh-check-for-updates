@@ -1,5 +1,9 @@
 # DSH 更新检查插件
 
+![GitHub Release](https://img.shields.io/github/v/release/ShanHaiFish/dsh-check-for-updates)
+![License](https://img.shields.io/github/license/ShanHaiFish/dsh-check-for-updates)
+![GitHub Stars](https://img.shields.io/github/stars/ShanHaiFish/dsh-check-for-updates)
+
 一个用于检查 DSH (DeepSeek Harness) 更新的动态 Cordis 插件。
 
 ## 功能特性
