@@ -6,6 +6,33 @@
 
 一个用于检查 DSH (DeepSeek Harness) 更新的动态 Cordis 插件。
 
+## 安装（静态 bundle，推荐）
+
+本仓库同时提供两种形态：
+
+| 形态 | 文件 | 是否自动加载 |
+| --- | --- | --- |
+| **静态 bundle（推荐）** | `package.json` + `cordis.patch.yml` + `lib/` + `client/` | 是，`dsh plugin add` 后随 profile 层栈自动加载 |
+| 动态插件（回退） | `host.js` + `client.js` | 否，需每次重启后 `cordis_define`/`cordis_run` |
+
+```sh
+# 已发布到 npm/GitHub 时（示例）：
+dsh plugin --profile web add dsh-check-for-updates
+
+# 本地未发布时用 file: 指向本仓库（注意路径不能含空格）：
+dsh plugin --profile web add "file:/absolute/path/to/dsh-check-for-updates"
+```
+
+> Mac/Linux 上若路径含空格或非 ASCII（如本机 `...2026-DeepSeekHarness相关\...`），建议先
+> 复制到无空格的路径再 `file:` 安装。
+
+**无硬编码路径**：bundle 版 host（`lib/index.js`）在运行时通过 `require.resolve('@deepseek-ai/dsh/package.json')`
+与 `process.execPath` 探测 DSH 安装根/版本与 node/npm-cli，不写死任何本机路径，跨机器可用。
+（动态回退形态 `host.js` 为受限沙箱、无法运行时探测，保留一个 documented 的默认安装根常量。）
+
+**客户端**：bundle 版在左下部「设置」上方浮动弹窗（首次打开自动检查 + 【更新到】/【稍后】），
+通过 `POST /dsh-update-check/api` 调用 host；「设置 > 通用」内的入口仅在动态形态提供。
+
 ## 功能特性
 
 - ✅ 在设置 > 通用 中显示"DSH 更新"设置项
