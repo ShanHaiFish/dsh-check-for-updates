@@ -1,5 +1,5 @@
 // DSH 更新检查插件 - 主机端代码
-// 版本 v1.9.0
+// 版本 v1.10.0
 // - 本部署没有任何 fetch 提供方，web.fetch 永不工作。
 //   因此本插件注册一个 curl 子进程 fetch 提供方（id: updck-curl）,
 //   让 web.fetch 真正可用，并从 npm registry 读取实际发布的最高版本。
@@ -7,9 +7,11 @@
 //   并用 semver 比较取最高者（rc.8），避免漏掉 next 标签上的新版本。
 // - 仍保留 web.search 作为最后兜底。
 // - 当前版本通过 fs 读取本地 @deepseek-ai/dsh/package.json。
+// - 自动升级：perform-update 用 node+npm-cli 安装精确版本到真实全局根
+//   （显式 --prefix，规避 .npmrc 的 M: 误解析），安装后对盘校验版本。
 
 return {
-  inject: ['web', 'fs'],
+  inject: ['web', 'fs', 'timer'],
   apply(ctx) {
     const web = ctx.web
     const fs = ctx.fs
@@ -258,6 +260,137 @@ return {
       }
     }
 
+    // ---------- 自动升级（安装到真实全局根，安装后对盘校验） ----------
+    function tailLines(s, n) {
+      const a = String(s || '').split(/\r?\n/).filter(Boolean)
+      return a.slice(-n).join('\n')
+    }
+    // 从运行中 package.json 推导真实全局根，规避 .npmrc 里被误解析成 M: 的 prefix
+    function deriveGlobalRoot() {
+      const marker = 'node_modules/@deepseek-ai/dsh'
+      const idx = LOCAL_PACKAGE_JSON.indexOf(marker)
+      if (idx === -1) return null
+      return LOCAL_PACKAGE_JSON.slice(0, idx).replace(/[\\/]+$/, '')
+    }
+
+    let nodeResolved = undefined
+    async function resolveNode() {
+      if (nodeResolved === undefined) {
+        try {
+          nodeResolved = await subprocess.resolveExecutable('node')
+        } catch (e) {
+          try {
+            nodeResolved = await subprocess.resolveExecutable('C:/Program Files/nodejs/node.exe')
+          } catch (e2) {
+            nodeResolved = null
+          }
+        }
+      }
+      return nodeResolved
+    }
+
+    let npmCliResolved = undefined
+    async function resolveNpmCli() {
+      if (npmCliResolved !== undefined) return npmCliResolved
+      const nodePath = await resolveNode()
+      const candidates = []
+      if (nodePath) {
+        // 从 node.exe 所在目录推导同款 npm
+        candidates.push(nodePath.replace(/[\\/][^\\/]+$/, '') + '/node_modules/npm/bin/npm-cli.js')
+      }
+      candidates.push('C:/Program Files/nodejs/node_modules/npm/bin/npm-cli.js')
+      candidates.push('C:/Program Files (x86)/nodejs/node_modules/npm/bin/npm-cli.js')
+      for (const c of candidates) {
+        try {
+          const t = await fs.resolve(c)
+          const info = await fs.stat(t)
+          if (info !== undefined) { npmCliResolved = c; return c }
+        } catch (e) { /* try next */ }
+      }
+      npmCliResolved = null
+      return null
+    }
+
+    // 执行安装；超时调用 handle.terminate()（幂等），读取 collect 输出
+    function runInstall(argv, timeoutMs) {
+      return new Promise((resolve, reject) => {
+        let handle
+        try {
+          handle = subprocess.spawn({
+            argv,
+            cwd: deriveGlobalRoot(),
+            stdio: {
+              stdin: 'ignore',
+              stdout: { maxBytes: 2000000 },
+              stderr: { maxBytes: 2000000 }
+            },
+            graceMs: 5000
+          })
+        } catch (e) {
+          return reject(e)
+        }
+        let timedOut = false
+        const t = ctx.timeout(() => { timedOut = true; handle.terminate() }, timeoutMs)
+        handle.done.then(() => {
+          t()
+          const out = (handle.collected && handle.collected.stdout) ? handle.collected.stdout.readFrom(0).text : ''
+          const err = (handle.collected && handle.collected.stderr) ? handle.collected.stderr.readFrom(0).text : ''
+          resolve({ out, err, timedOut })
+        }).catch((e) => { t(); reject(e) })
+      })
+    }
+
+    async function performUpdate() {
+      const currentVersion = await getCurrentVersion()
+      if (!subprocess) {
+        return { updated: false, error: 'subprocess 服务不可用，无法自动执行安装' }
+      }
+      const target = await getLatestVersion()
+      if (!target) {
+        return { updated: false, error: '无法获取最新版本信息，已取消更新' }
+      }
+      // 前置守卫：仅当确实发现新版本才执行
+      if (compareVersions(target, currentVersion) <= 0) {
+        return { updated: false, reason: 'already-latest', latestVersion: target }
+      }
+
+      const root = deriveGlobalRoot()
+      const nodePath = await resolveNode()
+      const npmCli = await resolveNpmCli()
+      const missing = []
+      if (!root) missing.push('无法推导全局安装根')
+      if (!nodePath) missing.push('node 不可用')
+      if (!npmCli) missing.push('npm-cli.js 不可用')
+      if (missing.length) return { updated: false, error: missing.join('；') }
+
+      const argv = [nodePath, npmCli, 'install', '-g', '--prefix', root, '@deepseek-ai/dsh@' + target]
+      console.log('[update] 执行安装(目标 ' + target + '):', argv.join(' '))
+
+      let result
+      try {
+        result = await runInstall(argv, 180000)
+      } catch (e) {
+        return { updated: false, error: '安装执行失败: ' + e.message }
+      }
+      const fullLog = tailLines(result.out + '\n' + result.err, 40)
+      if (result.timedOut) {
+        return { updated: false, error: '安装超时（180s）已中止', logTail: fullLog }
+      }
+      // 安装后对盘校验：版本必须等于目标
+      const installed = await getCurrentVersion()
+      if (installed === target) {
+        console.log('[update] 已更新到 ' + installed)
+        return {
+          updated: true,
+          installedVersion: installed,
+          needsRestart: true,
+          message: 'DSH 已成功更新到 ' + installed + '，请重启 DSH 后生效',
+          logTail: fullLog
+        }
+      }
+      return { updated: false, error: '安装后版本校验失败：当前仍为 ' + installed + '（期望 ' + target + '）', logTail: fullLog }
+    }
+
     // 注册RPC方法供客户端调用
     harness.handle('check-for-updates', async () => {
       return await checkForUpdates()
@@ -269,6 +402,10 @@ return {
 
     harness.handle('test-network', async () => {
       return await testNetwork()
+    })
+
+    harness.handle('perform-update', async () => {
+      return await performUpdate()
     })
   }
 }
