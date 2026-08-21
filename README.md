@@ -6,15 +6,6 @@
 
 一个用于检查 DSH (DeepSeek Harness) 更新的动态 Cordis 插件。
 
-> **⚠️ 本仓库已迁移归档**：dsh-check-for-updates 的后续开发与发布已并入插件组仓库
-> **[ShanHaiFish/dsh-plugins](https://github.com/ShanHaiFish/dsh-plugins)**（源码位于
-> [`plugins/dsh-check-for-updates/`](https://github.com/ShanHaiFish/dsh-plugins/tree/main/plugins/dsh-check-for-updates)）。
-> v1.12.0 Release 与历史提交保留在本仓库。新安装命令：
->
-> ```sh
-> dsh plugin --profile web add "github:ShanHaiFish/dsh-plugins#path:plugins/dsh-check-for-updates"
-> ```
-
 ## 安装（静态 bundle，推荐）
 
 本仓库同时提供两种形态：
@@ -25,8 +16,8 @@
 | 动态插件（回退） | `host.js` + `client.js` | 否，需每次重启后 `cordis_define`/`cordis_run` |
 
 ```sh
-# 从 GitHub（已迁移至 dsh-plugins monorepo）：
-dsh plugin --profile web add "github:ShanHaiFish/dsh-plugins#path:plugins/dsh-check-for-updates"
+# 从 GitHub：
+dsh plugin --profile web add github:ShanHaiFish/dsh-check-for-updates
 
 # 本地开发用 file: 指向本仓库（注意路径不能含空格）：
 dsh plugin --profile web add "file:/absolute/path/to/dsh-check-for-updates"
