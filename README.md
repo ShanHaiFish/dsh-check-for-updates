@@ -5,11 +5,11 @@
 ![License](https://img.shields.io/github/license/ShanHaiFish/dsh-check-for-updates)
 ![GitHub Stars](https://img.shields.io/github/stars/ShanHaiFish/dsh-check-for-updates)
 
-一个用于检查 DSH (DeepSeek Harness) 更新的动态 Cordis 插件。
+一个用于检查并安全更新 DSH (DeepSeek Harness) 的 Cordis 插件（静态 bundle 形态）。
 
 ## 截图 (Screenshots)
 
-**① 左下方浮动更新弹窗** —— 首次打开页面自动检查到新版本时，在左下部「设置」按钮上方弹出提示卡片，提供【更新到 {版本}】与【稍后】；点「稍后」后该版本不再重复弹出。
+**① 左下方浮动更新弹窗** —— 首次打开页面自动检查到新版本时，在左下部「设置」按钮上方弹出提示卡片，提供【更新到 {版本}】与【稍后】；点「稍后」后该版本不再重复弹出。v1.13.0 起点击更新为「安排更新」——退出 DSH 后由独立更新器自动完成安装。
 
 ![更新弹窗](docs/screenshots/update-popup.png)
 
@@ -17,17 +17,38 @@
 
 ![设置入口](docs/screenshots/settings-entry.png)
 
+## 更新机制（v1.13.0+，分离式两阶段更新器）
+
+在 dsh 进程运行中直接执行 `npm install -g` 是危险的：Windows 会锁住已被 dsh 加载的
+koffi 原生模块（`koffi.node`），npm 升级时包元数据更新成功、原生二进制却残留旧版，
+导致 dsh 下次启动直接报 `Mismatched native Koffi modules` 崩溃（v1.12.0 及更早版本
+的已知问题）。v1.13.0 起，更新流程改为两个阶段：
+
+1. **阶段一（DSH 进程内，即时返回）**：检查版本 → 把 `lib/updater.cjs` 模板实例化
+   （注入目标版本、全局根、本进程 PID 等任务配置）写入临时目录 → 以 **detached**
+   子进程启动独立更新器，UI 提示「退出 DSH 后将自动完成安装」。
+2. **阶段二（独立更新器，脱离 DSH 生命周期）**：轮询等待发起更新的 DSH 进程退出
+   （再加 3 秒宽限等文件锁释放）→ 执行 `npm install -g @deepseek-ai/dsh@<精确版本>` →
+   做三重校验：**npm 退出码**、**对盘版本**（磁盘 package.json 必须等于目标版本）、
+   **koffi 完整性**（koffi 主包/平台包声明版本与原生二进制内嵌版本一致）→
+   koffi 断链时自动按声明版本从 registry tarball（`npm pack` + 系统 `tar`）自愈 →
+   结果写入状态文件，DSH 下次启动时反馈（失败会弹卡片提示重试）。
+
+另有防护网：每次「检查更新」时顺带做 koffi 完整性自检（只读文件、无副作用），
+发现断链即弹「DSH 安装文件损坏」警告卡，提供【安排修复】一键走上述分离式流程
+（repair 模式，仅校验并修复 koffi）。
+
 ## 安装（静态 bundle，推荐）
 
 本仓库同时提供两种形态：
 
-| 形态 | 文件 | 是否自动加载 |
+| 形态 | 文件 | 状态 |
 | --- | --- | --- |
-| **静态 bundle（推荐）** | `package.json` + `cordis.patch.yml` + `lib/` + `client/` | 是，`dsh plugin add` 后随 profile 层栈自动加载 |
-| 动态插件（回退） | `host.js` + `client.js` | 否，需每次重启后 `cordis_define`/`cordis_run` |
+| **静态 bundle（推荐）** | `package.json` + `cordis.patch.yml` + `lib/` + `client/` | 当前维护形态，`dsh plugin add` 后随 profile 层栈自动加载 |
+| 动态插件（`host.js` + `client.js`） | 根目录两个文件 | **遗留，不再维护**（v1.10.1 后冻结，仅作历史参考） |
 
 ```sh
-# 从 npm（推荐，已发布到 npmjs）：
+# 从 npm（推荐，已发布到 npmjs；正式环境建议固定版本，例如 @1.13.0）：
 dsh plugin --profile web add dsh-check-for-updates
 
 # 从 GitHub：
@@ -44,29 +65,59 @@ dsh plugin --profile web add "file:/absolute/path/to/dsh-check-for-updates"
 
 **无硬编码路径**：bundle 版 host（`lib/index.js`）在运行时通过 `require.resolve('@deepseek-ai/dsh/package.json')`
 与 `process.execPath` 探测 DSH 安装根/版本与 node/npm-cli，不写死任何本机路径，跨机器可用。
-（动态回退形态 `host.js` 为受限沙箱、无法运行时探测，保留一个 documented 的默认安装根常量。）
 
 **客户端**：bundle 版在左下部「设置」上方浮动弹窗（首次打开自动检查 + 【更新到】/【稍后】），
-通过 `POST /dsh-update-check/api` 调用 host；「设置 > 通用」内的入口仅在动态形态提供。
+通过 `POST /dsh-update-check/api` 调用 host。
 
 ## 功能特性
 
-- ✅ 在设置 > 通用 中显示"DSH 更新"设置项
-- ✅ 显示当前版本和最新版本信息
-- ✅ 支持手动点击"检查更新"按钮
 - ✅ 首次打开 Web 页面时自动触发一次更新检查
 - ✅ 发现新版本时，在左下部"设置"按钮上方弹窗提示，并提供【更新到 {版本}】按钮
 - ✅ 弹窗支持【稍后】关闭，同版本不再重复弹出
+- ✅ **分离式两阶段更新**：点击更新只「安排任务」，退出 DSH 后由独立进程完成安装，
+  从根本上避免 Windows 运行中升级导致 koffi 断链、dsh 无法启动
+- ✅ **安装后三重校验**：npm 退出码 / 对盘版本 / koffi 原生模块一致性
+- ✅ **koffi 断链自愈**：自动从 registry tarball 恢复，修复失败会在下次启动时告知
+- ✅ **启动自检**：每次检查更新时校验 koffi 完整性，发现损坏弹警告卡一键安排修复
 - ✅ 添加"测试网络"按钮用于调试
 
 ## 文件结构
 
-- `host.js` - 主机端代码，负责从 npm registry 获取版本信息
-- `client.js` - 客户端代码，负责在设置中显示更新状态和弹窗提示
+- `lib/index.js` - 主机端（静态 bundle）：版本检查、API 路由、koffi 自检、更新任务安排
+- `lib/updater.cjs` - 分离式更新器模板（阶段二：等待退出 → 安装 → 校验/自愈 → 写状态）
+- `lib/launcher.cjs` - detached 启动辅助（参数防御性校验）
+- `client/client.js` - 客户端（静态 bundle）：自动检查、更新弹窗、损坏警告卡
+- `host.js` / `client.js` - **遗留**动态形态（v1.10.1 冻结，不再维护）
 
 ## 版本历史
 
-### v1.12.0 (当前版本)
+### v1.13.0 (当前版本)
+
+**修复与更新安全改造**（依据 2026-08-24 排查报告）：
+
+1. **修复启动页必现报错（R5）**：`client/client.js` 的模块 factory 之前返回
+   `{ __dshUpdateChecker, recheck }` 普通对象，浏览器侧 cordis loader 要求插件形态
+   （函数或带 `apply` 方法的对象），导致每个用户安装后启动页必报
+   `Failed to load plugins: invalid plugin, expect function or object with an "apply" method`。
+   现返回 `{ name, apply }`，`autoCheck()` 移入 `apply()`；调试句柄改挂
+   `window.__dshUpdateChecker`。功能本身不受影响（副作用在求值期已生效），
+   但报错必须修复。
+2. **分离式两阶段更新器（R1）**：更新不再在运行中的 dsh 进程内执行
+   `npm install -g`（Windows 下 koffi.node 被锁，npm 部分更新留下"元数据 3.1.6 +
+   二进制 3.1.5"断链，dsh 重启即崩 `Mismatched native Koffi modules`）。现在点击
+   更新只生成独立 updater 脚本并以 detached 子进程启动，等本 DSH 进程退出后
+   才开始安装（+3s 宽限），UI 话术改为「退出 DSH 后将自动完成安装」。
+3. **补齐校验（R2）**：旧版不检查 npm 退出码（网络失败仍报"更新成功"）、README
+   声称的"安装后对盘校验"在代码中不存在。现在 updater 做退出码 / 对盘版本 /
+   koffi 完整性三重校验，koffi 断链时按主包声明版本拉官方 tarball 自动修复。
+4. **超时策略（R3）**：取消 180s 强杀（强杀 npm 是另一个损坏向量）；独立更新器
+   给 npm 15 分钟上限，超时中止后仍执行完整性校验与自愈。
+5. **启动自检（R4）**：每次检查更新时附带 koffi 一致性自检（只读二进制查版本
+   字面量，无加载副作用）；发现断链弹「安装文件损坏」警告卡，一键安排修复
+   （`perform-repair` API）。上次更新失败的结果也会在下次启动时反馈。
+6. 版本号 semver 白名单校验、子进程一律「文件 + 字符串参数数组」（不经 shell）。
+
+### v1.12.0
 
 **修改内容**：
 1. **首次打开自动检查更新**（客户端）：页面加载时自动触发一次 `check-for-updates`（模块级
@@ -229,6 +280,9 @@ dsh plugin --profile web add "file:/absolute/path/to/dsh-check-for-updates"
 
 ## 使用方法
 
+> ⚠️ 以下为**遗留动态形态**（`host.js`/`client.js`，v1.10.1 冻结）的使用说明，仅作历史参考。
+> 当前推荐使用上文的静态 bundle 安装方式，功能以 bundle 版为准。
+
 ### 安装插件
 
 1. 将 `host.js` 和 `client.js` 代码复制到 DSH 动态插件定义中
@@ -245,6 +299,10 @@ dsh plugin --profile web add "file:/absolute/path/to/dsh-check-for-updates"
 6. 查看控制台日志获取详细信息
 
 ## 技术细节
+
+> ⚠️ 本节描述**遗留动态形态**的接口；静态 bundle 版 host 通过 `POST /dsh-update-check/api`
+> （JSON `{method}`）提供同名方法：`check-for-updates` / `get-current-version` / `test-network` /
+> `perform-update`（v1.13.0 起返回"已安排"而非同步安装）/ `perform-repair`（v1.13.0 新增）。
 
 ### 主机端 (`host.js`)
 

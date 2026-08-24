@@ -11,3 +11,6 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+
+# Security scan tool state
+.mimosa/
