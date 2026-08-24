@@ -91,7 +91,10 @@ dsh plugin --profile web add "file:/absolute/path/to/dsh-check-for-updates"
 
 ## 版本历史
 
-### v1.13.0 (当前版本)
+> 每版发布同步归档至 [GitHub Releases](https://github.com/ShanHaiFish/dsh-check-for-updates/releases)，
+> npm 发布记录见 [dsh-check-for-updates on npm](https://www.npmjs.com/package/dsh-check-for-updates)。
+
+### v1.13.0（2026-08-24 发布，当前版本）
 
 **修复与更新安全改造**（依据 2026-08-24 排查报告）：
 
