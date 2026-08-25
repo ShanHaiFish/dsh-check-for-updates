@@ -89,6 +89,36 @@ dsh plugin --profile web add "file:/absolute/path/to/dsh-check-for-updates"
 - `client/client.js` - 客户端（静态 bundle）：自动检查、更新弹窗、损坏警告卡、设置页「DSH 更新」入口
 - `host.js` / `client.js` - **遗留**动态形态（v1.10.1 冻结，不再维护）
 
+## 开发与验证（CI 自动化）
+
+本地验证（无需安装依赖）：
+
+```sh
+# 语法检查
+node --check client/client.js
+node --check lib/index.js && node --check lib/updater.cjs && node --check lib/launcher.cjs
+
+# 冒烟测试（结构 + 交互契约）
+node test/smoke.cjs
+node test/interactive.cjs
+```
+
+- `test/smoke.cjs` - 结构冒烟：bundle 插件形态（`{ name, inject: ['slots'], apply }`）、
+  `settings.general.item` 注册、设置项组件渲染
+- `test/interactive.cjs` - 交互契约：模拟点击设置项各按钮（检查更新/测试网络/更新到），
+  验证与 host API（`/dsh-update-check/api`）契约的完整对齐，含「安排更新」语义与去重键
+
+GitHub Actions 云端自动化：
+
+- `.github/workflows/ci.yml` - **PR 与 push 到 main 时自动执行**上述全部检查，通过才允许合并（发布前把关）
+- `.github/workflows/release.yaml` - **推送 `v*` 标签时自动发布**：校验标签与版本一致 → 先跑测试 →
+  `npm publish` → 创建 GitHub Release。需在仓库 Settings → Secrets 配置 `NPM_TOKEN`
+  （npmjs access token，publish 权限）
+
+> 发布前测试也可用 GitHub 预发布能力（不污染 npm `latest`）：发 `--prerelease` Release 后，
+> 测试者用 `dsh plugin --profile web add github:ShanHaiFish/dsh-check-for-updates#<标签>`
+> 或 tarball URL 安装实测，通过后再升正式标签。
+
 ## 版本历史
 
 > 每版发布同步归档至 [GitHub Releases](https://github.com/ShanHaiFish/dsh-check-for-updates/releases)，

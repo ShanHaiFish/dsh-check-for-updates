@@ -1,0 +1,47 @@
+# 推送 v* 标签时自动发布：校验 tag/版本一致 → npm publish → 创建 GitHub Release。
+# 前置要求：仓库 Settings → Secrets and variables → Actions 新建 NPM_TOKEN
+# （npmjs.com 上生成的 access token，需 publish 权限；github 账号 2026-08-25 已可用）。
+# 约定：标签名 v<version>，如 v1.13.1 ↔ package.json version 1.13.1。
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (npm registry)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Assert tag/version consistency
+        run: |
+          node -e "const p=require('./package.json'); const tag=process.env.GITHUB_REF_NAME.replace(/^v/,''); if(p.version!==tag){console.error('tag 与 package.json 版本不一致: ' + process.env.GITHUB_REF_NAME + ' vs ' + p.version); process.exit(1)}; console.log('OK: v' + p.version)"
+
+      - name: Run tests before publishing
+        run: |
+          node --check client/client.js
+          node --check lib/index.js
+          node test/smoke.cjs
+          node test/interactive.cjs
+
+      - name: Publish to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
