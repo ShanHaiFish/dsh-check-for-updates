@@ -1,4 +1,4 @@
-// DSH 更新检查插件 — Client（静态 bundle 形态）v1.13.0
+// DSH 更新检查插件 — Client（静态 bundle 形态）v1.13.1
 // 首次打开自动检查一次更新（每页一次，跨 HMR 用 window 标志持久）；有新版本时在
 // 左下部「设置」按钮上方浮动卡片提示，提供【更新到 {版本}】/【稍后】。
 // host 调用走 POST /dsh-update-check/api（JSON {method}）。
@@ -15,9 +15,22 @@
 //     安装损坏），卡片话术相应改为「退出 DSH 后将自动完成安装」。
 //   - 检查时若 host 报告 koffi 原生模块断链（或上次自动更新失败），弹出警告卡
 //     提供【安排修复】/【再次安排更新】。
+//
+// v1.13.1 修复（来源 bug-report-dsh-check-for-updates-settings-entry-missing.md）：
+//   - 补回 README 承诺的「设置 > 通用 · DSH 更新」设置项入口：静态 bundle 化
+//     （896caaa6）与 v1.13.0 重写（2ea843e）时遗漏了 settings.general.item 注册，
+//     用户只能依赖自动检查，无法手动检查更新/测试网络。
+//   - 实现方式：导出声明 inject: ['slots']，apply() 内经 ctx.slots 注册
+//     UpdateSettingsItem（React 组件），host 调用复用本文件 call()——
+//     POST /dsh-update-check/api（JSON {method}），完整对接 v1.13.0 host 契约
+//     （get-current-version→{version}；check-for-updates→{currentVersion,
+//     latestVersion, hasUpdate, error, integrity, lastUpdaterResult}；
+//     test-network→{success, message, statusCode, contentLength}；
+//     perform-update→{updated, scheduled, installedVersion, needsRestart, message}）。
 window.__ModuleLoader__.load({
   id: 'dsh-check-for-updates',
   factory: (require) => {
+    const React = require('react')
     const DISMISS_KEY = 'dsh-updck-dismissed-version'
     const REPORTED_KEY = 'dsh-updck-reported-status'
     const API = '/dsh-update-check/api'
@@ -184,6 +197,171 @@ window.__ModuleLoader__.load({
       } catch (e) { /* 自动检查失败不打扰用户 */ }
     }
 
+    // ---------- 设置项：设置 > 通用 · DSH 更新（v1.13.1 补回） ----------
+    // 挂载时只读当前版本（不触发网络动作）；「检查更新」/「测试网络」/「更新到」
+    // 均通过 call() 走 v1.13.0 host 契约；perform-update 为「安排」语义——
+    // 显示"退出 DSH 后自动完成安装"，并把目标版本写入 sessionStorage，
+    // 与浮动弹卡共享 DISMISS_KEY，避免安排后弹卡重复出现。
+    function UpdateSettingsItem() {
+      const [state, setState] = React.useState({
+        currentVersion: null,
+        latestVersion: null,
+        hasUpdate: false,
+        checking: false,
+        updating: false,
+        repairing: false,
+        error: null,
+        message: null,
+        network: null,
+        damage: null
+      })
+
+      React.useEffect(() => {
+        let cancelled = false
+        call('get-current-version').then((r) => {
+          if (!cancelled && r && r.version) {
+            setState((s) => Object.assign({}, s, { currentVersion: r.version }))
+          }
+        }).catch(() => { /* 挂载时读取失败不打扰 */ })
+        return () => { cancelled = true }
+      }, [])
+
+      function doCheck() {
+        setState((s) => Object.assign({}, s, { checking: true, error: null, network: null, message: null }))
+        call('check-for-updates').then((r) => {
+          const integ = r && r.integrity
+          const last = r && r.lastUpdaterResult
+          const damage = (integ && integ.checked && !integ.ok)
+            ? '检测到 koffi 原生模块与声明版本不一致（koffi ' + (integ.koffiVersion || '?') + '），此时重启 DSH 可能报 "Mismatched native Koffi modules" 而无法启动，请安排修复。'
+            : (last && last.success === false ? '上次自动更新未完成：' + (last.error || '未知原因') + '，可重新安排更新。' : null)
+          setState((s) => Object.assign({}, s, {
+            checking: false,
+            currentVersion: (r && r.currentVersion) || s.currentVersion,
+            latestVersion: (r && r.latestVersion) || null,
+            hasUpdate: !!(r && r.hasUpdate),
+            error: (r && r.error) || null,
+            damage
+          }))
+        }).catch((e) => {
+          setState((s) => Object.assign({}, s, { checking: false, error: String((e && e.message) || e) }))
+        })
+      }
+
+      function doTestNetwork() {
+        setState((s) => Object.assign({}, s, { network: 'testing' }))
+        call('test-network').then((r) => {
+          setState((s) => Object.assign({}, s, {
+            network: (r && r.success)
+              ? { ok: true, text: (r.message || '网络连接正常') + (r.statusCode ? '（HTTP ' + r.statusCode + '）' : '') }
+              : { ok: false, text: (r && r.error) || '网络测试失败' }
+          }))
+        }).catch((e) => {
+          setState((s) => Object.assign({}, s, { network: { ok: false, text: String((e && e.message) || e) } }))
+        })
+      }
+
+      function doUpdate() {
+        setState((s) => Object.assign({}, s, { updating: true, error: null, message: null, network: null }))
+        call('perform-update').then((r) => {
+          if (r && r.scheduled) {
+            if (r.installedVersion) ssSet(DISMISS_KEY, r.installedVersion)
+            setState((s) => Object.assign({}, s, {
+              updating: false,
+              message: r.message || ('已安排更新到 ' + r.installedVersion + '：退出 DSH 后将自动完成安装，随后重新运行 dsh 即可使用新版本'),
+              hasUpdate: false
+            }))
+          } else {
+            setState((s) => Object.assign({}, s, { updating: false, error: (r && r.error) || '安排更新失败' }))
+          }
+        }).catch((e) => {
+          setState((s) => Object.assign({}, s, { updating: false, error: String((e && e.message) || e) }))
+        })
+      }
+
+      function doRepair() {
+        setState((s) => Object.assign({}, s, { repairing: true, error: null, message: null, network: null }))
+        call('perform-repair').then((r) => {
+          if (r && r.scheduled) {
+            setState((s) => Object.assign({}, s, {
+              repairing: false,
+              message: r.message || '已安排修复：退出 DSH 后将自动校验并修复 koffi 原生模块',
+              damage: null
+            }))
+          } else {
+            setState((s) => Object.assign({}, s, { repairing: false, error: (r && r.error) || '安排修复失败' }))
+          }
+        }).catch((e) => {
+          setState((s) => Object.assign({}, s, { repairing: false, error: String((e && e.message) || e) }))
+        })
+      }
+
+      const busy = state.checking || state.updating || state.repairing
+      const row = { padding: '12px 0', borderBottom: '1px solid ' + tokens.border }
+      const head = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }
+      const title = { fontWeight: '500', color: tokens.text, fontSize: '14px' }
+      const secBtn = {
+        padding: '4px 12px', border: '1px solid ' + tokens.border, borderRadius: '4px',
+        backgroundColor: 'transparent', color: tokens.text2,
+        cursor: busy ? 'not-allowed' : 'pointer', fontSize: '13px'
+      }
+      const primBtn = {
+        marginTop: '10px', padding: '6px 16px', border: 'none', borderRadius: '6px',
+        backgroundColor: state.updating ? tokens.error : tokens.primaryFill,
+        color: tokens.primaryFg, cursor: state.updating ? 'not-allowed' : 'pointer', fontSize: '13px'
+      }
+      const repairBtn = {
+        marginTop: '10px', padding: '6px 16px', border: 'none', borderRadius: '6px',
+        backgroundColor: tokens.error, color: '#ffffff',
+        cursor: state.repairing ? 'not-allowed' : 'pointer', fontSize: '13px'
+      }
+      const line = (color, margin) => Object.assign(
+        { fontSize: '13px', color: color || tokens.text2, marginTop: margin || '4px' }, {}
+      )
+
+      return React.createElement('div', { style: row },
+        React.createElement('div', { style: head },
+          React.createElement('span', { style: title }, 'DSH 更新'),
+          React.createElement('div', { style: { display: 'flex', gap: '8px' } },
+            React.createElement('button', {
+              onClick: doCheck,
+              disabled: busy,
+              style: secBtn
+            }, state.checking ? '检查中...' : '检查更新'),
+            React.createElement('button', {
+              onClick: doTestNetwork,
+              disabled: busy,
+              style: secBtn
+            }, '测试网络')
+          )
+        ),
+        state.currentVersion && React.createElement('div', { style: line() }, '当前版本: ' + state.currentVersion),
+        state.latestVersion && React.createElement('div', {
+          style: line(state.hasUpdate ? tokens.success : tokens.text2)
+        }, '最新版本: ' + state.latestVersion),
+        state.hasUpdate && React.createElement('div', { style: line(tokens.success) }, '有新版本可用！'),
+        state.hasUpdate && React.createElement('button', {
+          onClick: doUpdate,
+          disabled: busy,
+          style: primBtn
+        }, state.updating ? '安排中...' : '更新到 ' + state.latestVersion),
+        state.damage && React.createElement('div', { style: line(tokens.error) }, state.damage),
+        state.damage && React.createElement('button', {
+          onClick: doRepair,
+          disabled: busy,
+          style: repairBtn
+        }, state.repairing ? '安排中...' : '安排修复'),
+        state.message && React.createElement('div', { style: line(tokens.success) }, state.message),
+        (state.message || state.hasUpdate) && React.createElement('div', {
+          style: { fontSize: '12px', color: tokens.text3, marginTop: '4px' }
+        }, '升级完成后请退出并重新运行 dsh（如 dsh web）以加载新版本'),
+        state.error && React.createElement('div', { style: line(tokens.error) }, '错误: ' + state.error),
+        state.network && state.network !== 'testing' && React.createElement('div', {
+          style: line(state.network.ok ? tokens.success : tokens.error, '8px')
+        }, '网络测试: ' + state.network.text),
+        state.network === 'testing' && React.createElement('div', { style: line(tokens.text3, '8px') }, '网络测试中…')
+      )
+    }
+
     // cordis 插件入口：浏览器侧 loader 会把本 factory 的返回值作为插件应用，
     // 必须是函数或含 apply 方法的对象（见文件头 v1.13.0 说明）。
     function apply(ctx) {
@@ -192,8 +370,17 @@ window.__ModuleLoader__.load({
       if (!window.__dshUpdateChecker) {
         window.__dshUpdateChecker = { recheck: () => call('check-for-updates') }
       }
+      // v1.13.1：补回「设置 > 通用 · DSH 更新」设置项入口
+      const slots = ctx && (ctx.slots || (typeof ctx.get === 'function' && ctx.get('slots')))
+      if (slots && typeof slots.inject === 'function') {
+        slots.inject('settings.general.item', () => slots.register({
+          name: 'settings.general.item',
+          id: 'update-checker',
+          order: 30
+        }, UpdateSettingsItem))
+      }
     }
 
-    return { name: 'dsh-check-for-updates', apply }
+    return { name: 'dsh-check-for-updates', inject: ['slots'], apply }
   }
 })

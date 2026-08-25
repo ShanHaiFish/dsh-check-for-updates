@@ -48,7 +48,7 @@ koffi 原生模块（`koffi.node`），npm 升级时包元数据更新成功、�
 | 动态插件（`host.js` + `client.js`） | 根目录两个文件 | **遗留，不再维护**（v1.10.1 后冻结，仅作历史参考） |
 
 ```sh
-# 从 npm（推荐，已发布到 npmjs；正式环境建议固定版本，例如 @1.13.0）：
+# 从 npm（推荐，已发布到 npmjs；正式环境建议固定版本，例如 @1.13.1）：
 dsh plugin --profile web add dsh-check-for-updates
 
 # 从 GitHub：
@@ -86,7 +86,7 @@ dsh plugin --profile web add "file:/absolute/path/to/dsh-check-for-updates"
 - `lib/index.js` - 主机端（静态 bundle）：版本检查、API 路由、koffi 自检、更新任务安排
 - `lib/updater.cjs` - 分离式更新器模板（阶段二：等待退出 → 安装 → 校验/自愈 → 写状态）
 - `lib/launcher.cjs` - detached 启动辅助（参数防御性校验）
-- `client/client.js` - 客户端（静态 bundle）：自动检查、更新弹窗、损坏警告卡
+- `client/client.js` - 客户端（静态 bundle）：自动检查、更新弹窗、损坏警告卡、设置页「DSH 更新」入口
 - `host.js` / `client.js` - **遗留**动态形态（v1.10.1 冻结，不再维护）
 
 ## 版本历史
@@ -94,7 +94,25 @@ dsh plugin --profile web add "file:/absolute/path/to/dsh-check-for-updates"
 > 每版发布同步归档至 [GitHub Releases](https://github.com/ShanHaiFish/dsh-check-for-updates/releases)，
 > npm 发布记录见 [dsh-check-for-updates on npm](https://www.npmjs.com/package/dsh-check-for-updates)。
 
-### v1.13.0（2026-08-24 发布，当前版本）
+### v1.13.1（2026-08-25 发布，当前版本）
+
+**修复**（依据 bug-report-dsh-check-for-updates-settings-entry-missing.md）：
+
+1. **补回「设置 > 通用 · DSH 更新」设置项入口**：静态 bundle 化（`896caaa6`）与
+   v1.13.0 重写（`2ea843e`）时遗漏了 `settings.general.item` 注册，用户无法在设置页
+   手动检查更新/测试网络。现于 `client/client.js` 导出声明 `inject: ['slots']`，
+   经 `ctx.slots` 注册 `UpdateSettingsItem`（React 组件，样式沿用 `--dsw-alias-*`
+   主题 token），完整对接 v1.13.0 host 契约：
+   - 挂载时只读当前版本（`get-current-version`→`{version}`），不触发网络动作
+   - 【检查更新】→ `check-for-updates`（当前/最新版本、是否可更新、koffi 断链与
+     上次更新失败提示）
+   - 【测试网络】→ `test-network`（成功/失败内联反馈）
+   - 【更新到 {版本}】→ `perform-update`（v1.13.0「安排」语义：退出 DSH 后自动
+     完成安装），并把目标版本写入 sessionStorage，与浮动弹卡共用去重键
+   - 检测到 koffi 断链时同卡提供【安排修复】→ `perform-repair`
+2. 其余 v1.13.0 功能不变：自动检查、更新弹卡、koffi 警告卡、分离式两阶段更新。
+
+### v1.13.0（2026-08-24 发布）
 
 **修复与更新安全改造**（依据 2026-08-24 排查报告）：
 
