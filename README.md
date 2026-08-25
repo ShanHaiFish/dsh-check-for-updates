@@ -48,7 +48,7 @@ koffi 原生模块（`koffi.node`），npm 升级时包元数据更新成功、�
 | 动态插件（`host.js` + `client.js`） | 根目录两个文件 | **遗留，不再维护**（v1.10.1 后冻结，仅作历史参考） |
 
 ```sh
-# 从 npm（推荐，已发布到 npmjs；正式环境建议固定版本，例如 @1.13.1）：
+# 从 npm（推荐，已发布到 npmjs；正式环境建议固定版本，例如 @1.13.2）：
 dsh plugin --profile web add dsh-check-for-updates
 
 # 从 GitHub：
@@ -124,7 +124,14 @@ GitHub Actions 云端自动化：
 > 每版发布同步归档至 [GitHub Releases](https://github.com/ShanHaiFish/dsh-check-for-updates/releases)，
 > npm 发布记录见 [dsh-check-for-updates on npm](https://www.npmjs.com/package/dsh-check-for-updates)。
 
-### v1.13.1（2026-08-25 发布，当前版本）
+### v1.13.2（2026-08-25 发布，当前版本）
+
+**自动化发布链路演练**：本版本用于端到端验证 GitHub Actions 自动发布流程
+（`.github/workflows/release.yaml`：推送 `v*` 标签 → 校验 tag/版本一致 → 语法与冒烟
+测试 → `npm publish` → 自动创建 GitHub Release），**无功能变更**。全部产物由 CI 生成，
+发布说明由 GitHub 按提交自动汇总。
+
+### v1.13.1（2026-08-25 发布）
 
 **修复**（依据 bug-report-dsh-check-for-updates-settings-entry-missing.md）：
 
