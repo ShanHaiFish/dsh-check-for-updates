@@ -36,30 +36,54 @@ return {
       }
     }
 
-    // ---------- 语义化版本比较（无需依赖库） ----------
+    // ---------- 语义化版本比较（无需依赖库，semver 规范 §11） ----------
+    // 解析核心数字与预发布标识符数组；build 元数据(+xxx)不参与比较。
     function parseVersionNumber(v) {
-      const s = String(v).trim()
+      const s = String(v).trim().replace(/\+[0-9A-Za-z.-]*$/, '')
       const dash = s.indexOf('-')
       const core = (dash === -1 ? s : s.slice(0, dash)).split('.')
       const pre = dash === -1 ? '' : s.slice(dash + 1)
-      const parts = core.map((n) => { const x = parseInt(n, 10); return isNaN(x) ? 0 : x })
-      return { parts, pre }
+      const parts = []
+      for (let i = 0; i < 3; i++) {
+        const x = parseInt(core[i], 10)
+        parts.push(isNaN(x) ? 0 : x)
+      }
+      return { parts, pre: pre ? pre.split('.') : [] }
     }
     // 返回: >0 表示 a>b, <0 表示 a<b, 0 表示相等
+    // 预发布标识符逐段（`.` 分隔）从左到右比较：数字标识符 < 字母数字标识符；
+    // 数字按数值比大小，字母数字按 ASCII 字典序（alpha < beta < rc）；
+    // 前缀相同时标识符更多者更高（如 -alpha < -alpha.1）。
+    // 修复：旧实现抓取预发布串中“第一个数字”比大小（rc.1→1、alpha.5→5），
+    // 把 0.1.2-alpha.5 误判为高于 0.1.2-rc.1，导致取到的“最新版本”是 Alpha 而非 RC。
     function compareVersions(a, b) {
       const A = parseVersionNumber(a)
       const B = parseVersionNumber(b)
       for (let i = 0; i < 3; i++) {
         if (A.parts[i] !== B.parts[i]) return A.parts[i] - B.parts[i]
       }
-      if (A.pre === B.pre) return 0
-      if (!A.pre) return 1 // 正式版 > 预发布
-      if (!B.pre) return -1
-      const num = (s) => { const m = String(s).match(/(\d+)/); return m ? parseInt(m[1], 10) : NaN }
-      const na = num(A.pre)
-      const nb = num(B.pre)
-      if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb
-      return A.pre < B.pre ? -1 : 1
+      if (A.pre.length === 0 && B.pre.length === 0) return 0
+      if (A.pre.length === 0) return 1 // 正式版 > 预发布
+      if (B.pre.length === 0) return -1
+      const isNum = (s) => /^\d+$/.test(s)
+      const maxLen = Math.max(A.pre.length, B.pre.length)
+      for (let i = 0; i < maxLen; i++) {
+        if (i >= A.pre.length) return -1
+        if (i >= B.pre.length) return 1
+        const x = A.pre[i]
+        const y = B.pre[i]
+        const xn = isNum(x)
+        const yn = isNum(y)
+        if (xn && yn) {
+          const d = parseInt(x, 10) - parseInt(y, 10)
+          if (d !== 0) return d
+        } else if (xn !== yn) {
+          return xn ? -1 : 1
+        } else if (x !== y) {
+          return x < y ? -1 : 1
+        }
+      }
+      return 0
     }
     // 从 npm packument 的 versions 键中取最高版本
     function pickMaxVersion(versions) {

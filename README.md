@@ -48,7 +48,7 @@ koffi 原生模块（`koffi.node`），npm 升级时包元数据更新成功、�
 | 动态插件（`host.js` + `client.js`） | 根目录两个文件 | **遗留，不再维护**（v1.10.1 后冻结，仅作历史参考） |
 
 ```sh
-# 从 npm（推荐，已发布到 npmjs；正式环境建议固定版本，例如 @1.13.2）：
+# 从 npm（推荐，已发布到 npmjs；正式环境建议固定版本，例如 @1.13.3）：
 dsh plugin --profile web add dsh-check-for-updates
 
 # 从 GitHub：
@@ -124,7 +124,27 @@ GitHub Actions 云端自动化：
 > 每版发布同步归档至 [GitHub Releases](https://github.com/ShanHaiFish/dsh-check-for-updates/releases)，
 > npm 发布记录见 [dsh-check-for-updates on npm](https://www.npmjs.com/package/dsh-check-for-updates)。
 
-### v1.13.2（2026-08-25 发布，当前版本）
+### v1.13.3（2026-09-03，当前版本）——**修复版本判断：以 RC 版本为最新**
+
+**修复**（依据 GitHub 发布与 npm registry 快照：`0.1.2-rc.1` 为当前最高版本，
+`0.1.2-alpha.5` 不是最高）：
+
+1. **semver 预发布排序 bug**：`compareVersions` 旧实现从预发布串中抓“第一个数字”
+   直接比大小（`rc.1`→1、`alpha.5`→5），把 `0.1.2-alpha.5` 误判为高于
+   `0.1.2-rc.1`，导致「检查更新」把 Alpha 当成最新版本（README v1.9.0 曾确认
+   `latest` 标签滞后、改走全版本集合取最高——但比较器本身的排序是错的）。
+   现按 semver 规范 §11 完整比较预发布标识符：
+   - 核心数字先比；正式版 > 预发布
+   - 预发布标识符逐段（`.` 分隔）从左到右比较：数字标识符 < 字母数字标识符；
+     数字按数值比大小，字母数字按 ASCII 字典序（`alpha < beta < rc`）
+   - 前缀相同时标识符更多者更高（`-alpha < -alpha.1`）
+   - build 元数据（`+xxx`）不参与比较
+2. 遗留动态形态 `host.js` 中同一份比较逻辑同步修复。
+3. 新增 `test/version.cjs` 回归测试并接入 CI（`ci.yml` 与 `release.yaml` 发布前
+   测试）：覆盖 `0.1.2-rc.1 > 0.1.2-alpha.5` 与完整预发布排序规则，并用真实 npm
+   发布集合验证 `pickMax` 取到 `0.1.2-rc.1`。
+
+### v1.13.2（2026-08-25 发布）
 
 **自动化发布链路演练**：本版本用于端到端验证 GitHub Actions 自动发布流程
 （`.github/workflows/release.yaml`：推送 `v*` 标签 → 校验 tag/版本一致 → 语法与冒烟

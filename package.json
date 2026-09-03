@@ -1,6 +1,6 @@
 {
   "name": "dsh-check-for-updates",
-  "version": "1.13.2",
+  "version": "1.13.3",
   "description": "DSH 更新检查插件（静态 bundle）：首次打开自动检查 DSH 新版本（取 npm 实际最高版本），左下方弹窗提示并支持一键安排更新；采用分离式两阶段更新器（退出 DSH 后由独立进程完成安装，避免 Windows 运行中原地升级导致 koffi 断链），安装后做退出码/对盘/koffi 三重校验并支持断链自愈与一键修复；UI 使用 DSH 语义化主题 token；DSH 安装根/版本、node/npm 均在运行时探测，无硬编码路径。",
   "type": "module",
   "main": "lib/index.js",

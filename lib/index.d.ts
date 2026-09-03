@@ -39,3 +39,10 @@ export declare function checkKoffiIntegrity(): KoffiIntegrity
 
 /** 读取 lib/updater.cjs 模板并注入任务配置，生成可独立运行的更新器脚本 */
 export declare function buildUpdaterScript(cfg: UpdaterConfig): string
+
+// v1.13.3 导出：语义化版本比较器（semver §11，供 test/version.cjs 回归测试使用）
+/** 比较两个 semver 版本：>0 表示 a>b, <0 表示 a<b, 0 表示相等（预发布按 alpha < beta < rc 排序） */
+export declare function compareVersions(a: string, b: string): number
+
+/** 从 packument versions 键集合中取最高版本 */
+export declare function pickMax(versions: Record<string, unknown>): string | null

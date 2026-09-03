@@ -32,3 +32,6 @@ jobs:
 
       - name: Interactive contract test
         run: node test/interactive.cjs
+
+      - name: Version comparison regression test
+        run: node test/version.cjs

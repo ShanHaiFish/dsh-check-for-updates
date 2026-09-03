@@ -33,8 +33,11 @@ jobs:
         run: |
           node --check client/client.js
           node --check lib/index.js
+          node --check lib/updater.cjs
+          node --check lib/launcher.cjs
           node test/smoke.cjs
           node test/interactive.cjs
+          node test/version.cjs
 
       - name: Publish to npm
         run: npm publish
