@@ -1,8 +1,20 @@
-// DSH 更新检查插件 — Client（静态 bundle 形态）v1.13.1
+// DSH 更新检查插件 — Client（静态 bundle 形态）v1.14.0
 // 首次打开自动检查一次更新（每页一次，跨 HMR 用 window 标志持久）；有新版本时在
 // 左下部「设置」按钮上方浮动卡片提示，提供【更新到 {版本}】/【稍后】。
 // host 调用走 POST /dsh-update-check/api（JSON {method}）。
 // 配色使用 DSH 语义化主题 token（--dsw-alias-*）以兼容第三方主题/亮暗色。
+//
+// v1.14.0 DSH 0.2.0 适配（代码零改动，仅清单与注释同步）：
+//   - require('react') 在 0.2.0 属平台 seed 模块（react/react-dom/@deepseek-ai/cordis/
+//     dsh-client-ui-slots/dsh-client-ui-primitives 等），任何客户端 bundle 均可直接
+//     require，无需 inject 声明；window.__ModuleLoader__ 由 dsh-client-modules 提供
+//     （package.json dsh.client.inject 已补充声明）。
+//   - settings.general.item 槽位与注册选项（id 必填/order/label）、
+//     ctx.slots.inject(...) + ctx.slots.register(...) 形态在 0.2.0-rc.1 保持一致。
+// v1.14.0 版本一致时精简提示：
+//   - 「最新版本」行仅在有更新（hasUpdate）时显示，版本相同不再重复两行同值；
+//   - 「上次自动更新未完成…」随 host 端过滤消失（目标版本已安装即视为达成），
+//     koffi 断链告警与版本无关，仍然保留。
 //
 // v1.13.0 变更：
 //   - factory 的返回值必须是 cordis 插件形态（函数或带 apply 方法的对象）。
@@ -335,8 +347,9 @@ window.__ModuleLoader__.load({
           )
         ),
         state.currentVersion && React.createElement('div', { style: line() }, '当前版本: ' + state.currentVersion),
-        state.latestVersion && React.createElement('div', {
-          style: line(state.hasUpdate ? tokens.success : tokens.text2)
+        // 版本一致（已是最新）时不再重复显示「最新版本」行，避免冗余提示
+        state.hasUpdate && state.latestVersion && React.createElement('div', {
+          style: line(tokens.success)
         }, '最新版本: ' + state.latestVersion),
         state.hasUpdate && React.createElement('div', { style: line(tokens.success) }, '有新版本可用！'),
         state.hasUpdate && React.createElement('button', {

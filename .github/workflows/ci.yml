@@ -35,3 +35,9 @@ jobs:
 
       - name: Version comparison regression test
         run: node test/version.cjs
+
+      - name: DSH install detection regression test
+        run: node test/dsh-info.cjs
+
+      - name: Updater status filter regression test
+        run: node test/updater-status-filter.cjs

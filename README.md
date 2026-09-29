@@ -5,7 +5,8 @@
 ![License](https://img.shields.io/github/license/ShanHaiFish/dsh-check-for-updates)
 ![GitHub Stars](https://img.shields.io/github/stars/ShanHaiFish/dsh-check-for-updates)
 
-一个用于检查并安全更新 DSH (DeepSeek Harness) 的 Cordis 插件（静态 bundle 形态）。
+一个用于检查并安全更新 DSH (DeepSeek Harness) 的 Cordis 插件（静态 bundle 形态），
+兼容 DSH 0.1.x 与 0.2.x 运行时（v1.14.0 起通过 DSH 0.2.0 启动严格兼容校验）。
 
 ## 截图 (Screenshots)
 
@@ -48,7 +49,7 @@ koffi 原生模块（`koffi.node`），npm 升级时包元数据更新成功、�
 | 动态插件（`host.js` + `client.js`） | 根目录两个文件 | **遗留，不再维护**（v1.10.1 后冻结，仅作历史参考） |
 
 ```sh
-# 从 npm（推荐，已发布到 npmjs；正式环境建议固定版本，例如 @1.13.3）：
+# 从 npm（推荐，已发布到 npmjs；正式环境建议固定版本，例如 @1.14.0）：
 dsh plugin --profile web add dsh-check-for-updates
 
 # 从 GitHub：
@@ -63,8 +64,11 @@ dsh plugin --profile web add "file:/absolute/path/to/dsh-check-for-updates"
 > Mac/Linux 上若路径含空格或非 ASCII（如本机 `...2026-DeepSeekHarness相关\...`），建议先
 > 复制到无空格的路径再 `file:` 安装。
 
-**无硬编码路径**：bundle 版 host（`lib/index.js`）在运行时通过 `require.resolve('@deepseek-ai/dsh/package.json')`
-与 `process.execPath` 探测 DSH 安装根/版本与 node/npm-cli，不写死任何本机路径，跨机器可用。
+**无硬编码路径**：bundle 版 host（`lib/index.js`）在运行时探测 DSH 安装根/版本与
+node/npm-cli——同根 `require.resolve`、Windows/Unix 两种全局布局
+（`<root>/node_modules` 与 `<root>/lib/node_modules`）、PATH 上 `dsh` 启动器软链
+realpath 上溯包根（v1.14.0 起 node 与 DSH 安装根异位也能正确识别，
+如 `/usr/bin/node-22` + `/usr/local/lib/node_modules`），不写死任何本机路径，跨机器可用。
 
 **客户端**：bundle 版在左下部「设置」上方浮动弹窗（首次打开自动检查 + 【更新到】/【稍后】），
 通过 `POST /dsh-update-check/api` 调用 host。
@@ -79,6 +83,10 @@ dsh plugin --profile web add "file:/absolute/path/to/dsh-check-for-updates"
 - ✅ **安装后三重校验**：npm 退出码 / 对盘版本 / koffi 原生模块一致性
 - ✅ **koffi 断链自愈**：自动从 registry tarball 恢复，修复失败会在下次启动时告知
 - ✅ **启动自检**：每次检查更新时校验 koffi 完整性，发现损坏弹警告卡一键安排修复
+- ✅ **兼容 DSH 0.1.x / 0.2.x 双世代**：peerDependencies 声明双范围，通过 0.2.0 启动
+  严格兼容校验（v1.14.0）
+- ✅ **版本一致不打扰**：已是最新时不显示更新提示与冗余行，历史失败记录在目标版本
+  已安装后自动隐藏（v1.14.0）
 - ✅ 添加"测试网络"按钮用于调试
 
 ## 文件结构
@@ -124,7 +132,55 @@ GitHub Actions 云端自动化：
 > 每版发布同步归档至 [GitHub Releases](https://github.com/ShanHaiFish/dsh-check-for-updates/releases)，
 > npm 发布记录见 [dsh-check-for-updates on npm](https://www.npmjs.com/package/dsh-check-for-updates)。
 
-### v1.13.3（2026-09-03，当前版本）——**修复版本判断：以 RC 版本为最新**
+### v1.14.0（当前版本）——**DSH 0.2.0 适配**
+
+**适配**（目标运行时 DSH `0.2.0-rc.1`，同时保持 `0.1.x` 兼容）：
+
+1. **peerDependencies 放宽为 `^0.1.0-rc.6 || ^0.2.0-rc.1`**（`@deepseek-ai/dsh-tools`
+   与 `@deepseek-ai/dsh-cordis-host-runner` 两项）。DSH 0.2.0-rc.1 起启动时按
+   `peerDependencies` 对 `@deepseek-ai/dsh*` 前缀 peer 做严格兼容校验
+   （`semver.satisfies(runtime, range, {includePrerelease: true})`），不匹配则
+   **整个 bundle 被拒载**并打印 skip 警告（宿主 API 路由与客户端设置项全部失效，
+   v1.13.3 在 0.2.0-rc.1 下即因此未加载）。`@deepseek-ai/cordis: ^4.0.1` 不在校验
+   范围内（只查 `@deepseek-ai/dsh*` 前缀），保持不变。
+2. **`dsh.client.inject` 补充 `@deepseek-ai/dsh-client-modules`**：0.2.0 中
+   `window.__ModuleLoader__` 的提供方。原引用的 `@deepseek-ai/dsh-client-runtime`
+   在 0.2.0 已停止发布（末版 `0.1.1-rc.2`），0.2.0 对不存在的注入条目软跳过，
+   故保留该条目以兼容 0.1.x 运行时。
+3. **兼容性核对结论（0.1.x → 0.2.0-rc.1 契约未变，代码零改动）**：
+   - Host 插件导出形态（`export const name/inject` + `export function apply(ctx)`）、
+     `inject: ['webServer']`、`ctx.inject([...], cb)`、`ctx.effect`（cordis 4.0.4）；
+   - `webServer.register({kind: 'exact', path, handler(req, res)})` 返回 disposer；
+   - 客户端 `window.__ModuleLoader__.load({id, factory})`，factory 返回
+     `{name, inject: ['slots'], apply}`；
+   - `settings.general.item` 槽位仍在（`id` 必填、`order`/`label` 可选），
+     `ctx.slots.inject(...) + ctx.slots.register(...)` 形态一致；
+   - `require('react')` 在 0.2.0 属平台 seed 模块，任何客户端 bundle 可直接 require。
+4. **修复「当前版本显示 0.0.0」**：`dshInfo()` 旧探测链在「node 与 DSH 安装根异位」
+   时全部落空（如 `node` 为 `/usr/bin/node-22` 而 DSH 装在
+   `/usr/local/lib/node_modules`——`require.resolve` 自插件位置够不着、
+   execPath 同根推导又只覆盖 Windows 式 `<root>/node_modules` 布局）。现补充
+   Unix 标准布局 `<root>/lib/node_modules` 候选，并经 PATH 上 `dsh` 启动器软链
+   （npm/pnpm 全局安装均为软链）realpath 后向上找包根，与安装方式无关。
+5. **修复 `deriveGlobalRoot` 丢前导 `/`**：Unix 绝对路径经 `split + filter(Boolean)`
+   重组后变成 `usr/local/lib` 相对路径，会破坏分离式更新器的 `--prefix` 与对盘
+   校验。改为按平台分隔符 `lastIndexOf` 定位后切片，原样保留绝对前缀。
+6. 新增 `test/dsh-info.cjs` 回归测试（临时目录构造 `bin/dsh` 软链 +
+   `lib/node_modules` 布局，验证异位探测与 globalRoot 推导、非 dsh 包不误报），
+   并接入 CI（`ci.yml`）与发布前测试（`release.yaml`）。
+7. **版本一致时不再提示历史更新失败**：
+   - `hasUpdate` 改走 semver 比较器（旧实现字符串 `!==`，本地版本高于 npm 时也会误报）；
+   - update 模式的历史失败记录在**目标已达成**（当前版本 ≥ 当次任务的目标版本）时
+     被过滤——典型场景：失败后更新实际已生效，界面却仍显示
+     「上次自动更新未完成：…，可重新安排更新」误导重试；koffi 修复类记录与成功
+     记录不受影响；
+   - 设置项「最新版本」行仅在有更新时显示，版本相同不再重复两行同值。
+8. 新增 `test/updater-status-filter.cjs` 回归测试（fixture DSH + 受控 TMPDIR 状态
+   文件 + fetch 桩，验证 hasUpdate 判定与失败记录过滤矩阵），接入 CI 与发布前测试。
+9. 验证：`dsh --profile web --dump-config` 不再出现 skip 警告且插件行进入组合配置
+   （重启 DSH 后宿主路由与设置项生效）。
+
+### v1.13.3（2026-09-03）——**修复版本判断：以 RC 版本为最新**
 
 **修复**（依据 GitHub 发布与 npm registry 快照：`0.1.2-rc.1` 为当前最高版本，
 `0.1.2-alpha.5` 不是最高）：

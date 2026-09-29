@@ -38,6 +38,8 @@ jobs:
           node test/smoke.cjs
           node test/interactive.cjs
           node test/version.cjs
+          node test/dsh-info.cjs
+          node test/updater-status-filter.cjs
 
       - name: Publish to npm
         run: npm publish
