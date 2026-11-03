@@ -52,7 +52,7 @@ koffi 原生模块（`koffi.node`），npm 升级时包元数据更新成功、�
 | 动态插件（`host.js` + `client.js`） | 根目录两个文件 | **遗留，不再维护**（v1.10.1 后冻结，仅作历史参考） |
 
 ```sh
-# 从 npm（推荐，已发布到 npmjs；正式环境建议固定版本，例如 @1.15.0）：
+# 从 npm（推荐，已发布到 npmjs；正式环境建议固定版本，例如 @1.15.1）：
 dsh plugin --profile web add dsh-check-for-updates
 
 # 从 GitHub：
@@ -76,6 +76,30 @@ realpath 上溯包根（v1.14.0 起 node 与 DSH 安装根异位也能正确识�
 **客户端**：bundle 版在左下部「设置」上方浮动弹窗（首次打开自动检查 + 【更新到】/【稍后】），
 通过 `POST /dsh-update-check/api` 调用 host。
 
+## 配置（可选，v1.15.1+）
+
+DSH Desktop（Electron 外壳）自带更新检查与安装，而 `dsh web`/CLI 形态没有；插件默认
+在检测到 Desktop 内置更新时**自动让位**，避免重复提示。可由 profile patch 覆盖：
+
+`~/.dsh/profiles/web/cordis.patch.yml`（应用后重启 DSH 生效）：
+
+```yaml
+- id: dsh-check-for-updates
+  name: dsh-check-for-updates
+  config:
+    enabled: true        # false：关闭插件（宿主 API 除读取配置外全部拒绝，设置项显示已禁用）
+    desktopMode: auto    # auto（默认）：Desktop 内置更新存在时自动让位
+                         # always：始终使用本插件（Desktop 环境也自动检查/安排更新）
+```
+
+| 配置 | 取值 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | `true` / `false` | `true` | 总开关。`false` 时客户端不自动检查，设置项仅显示禁用说明；宿主 `check-for-updates`/`perform-*` 一律拒绝 |
+| `desktopMode` | `auto` / `always` | `auto` | `auto` 时若检测到 DSH Desktop 更新桥（`globalThis.dshDesktop.protocolVersion === 1`，与 settings-general 同一判定），客户端自动让位：不自动检查、不弹浮卡，设置项显示让位说明；`always` 则照常启用 |
+
+> 判定说明：Desktop 内置更新**只存在于 Electron 外壳**（浏览器/CLI 形态没有该桥），
+> 因此在 `dsh web` 下 `desktopMode: auto` 与 `always` 行为一致，无需额外配置。
+
 ## 功能特性
 
 - ✅ 首次打开 Web 页面时自动触发一次更新检查
@@ -96,6 +120,9 @@ realpath 上溯包根（v1.14.0 起 node 与 DSH 安装根异位也能正确识�
   等父进程退出后并发执行 `npm install` 互相踩踏（v1.15.0）
 - ✅ **API 路由加固**：要求 `application/json` + 同源 Origin，阻断任意网页对本地
   exact 路由发起「安排更新/修复」副作用请求（v1.15.0）
+- ✅ **Desktop 自动让位**：检测到 DSH Desktop 内置更新桥时自动停止自动检查、不弹浮卡，
+  设置项显示让位说明，避免与 Desktop 自身更新重复（v1.15.1）
+- ✅ **可配置**：`enabled`（总开关）/ `desktopMode`（auto/always）经 profile patch 覆盖（v1.15.1）
 - ✅ 添加"测试网络"按钮用于调试
 
 ## 文件结构
@@ -119,12 +146,13 @@ node --check lib/index.js && node --check lib/updater.cjs && node --check lib/la
 node test/smoke.cjs
 node test/interactive.cjs
 
-# 回归测试（版本比较/通道选版、安装探测、失败记录过滤、更新器单飞锁、路由加固）
+# 回归测试（版本比较/通道选版、安装探测、失败记录过滤、更新器单飞锁、路由加固、Desktop 让位）
 node test/version.cjs
 node test/dsh-info.cjs
 node test/updater-status-filter.cjs
 node test/updater-lock.cjs
 node test/route-guard.cjs
+node test/desktop-delegation.cjs
 ```
 
 - `test/smoke.cjs` - 结构冒烟：bundle 插件形态（`{ name, inject: ['slots'], apply }`）、
@@ -140,6 +168,8 @@ node test/route-guard.cjs
 - `test/updater-lock.cjs` - 更新器单飞锁：有效锁拦截、陈旧锁清理（updater 已死/超时/
   已完成）、不可解析锁宽限、存活父进程不误清、updater 自清理
 - `test/route-guard.cjs` - API 路由加固：405/415/403/200 矩阵与同源判定
+- `test/desktop-delegation.cjs` - Desktop 让位与配置：Config 校验、`get-plugin-config`、
+  `enabled:false` 拦截、Desktop auto/always 与 Browser auto/disabled 四态客户端行为
 
 GitHub Actions 云端自动化：
 
@@ -157,7 +187,23 @@ GitHub Actions 云端自动化：
 > 每版发布同步归档至 [GitHub Releases](https://github.com/ShanHaiFish/dsh-check-for-updates/releases)，
 > npm 发布记录见 [dsh-check-for-updates on npm](https://www.npmjs.com/package/dsh-check-for-updates)。
 
-### v1.15.0（当前版本）——**DSH 0.2.1-rc.5 同步完善**
+### v1.15.1（当前版本）——**Desktop 让位与可配置**
+
+1. **Desktop 自动让位**：DSH Desktop（Electron 外壳）通过 preload 暴露
+   `globalThis.dshDesktop.protocolVersion === 1` 并自带更新检查/安装（判定与
+   `dsh-client-ui-settings-general` 的 `DesktopUpdateSource` 一致）。插件默认在检测到
+   该桥时停止自动检查、不弹浮卡，设置项只显示让位说明，避免与 Desktop 自身更新重复。
+2. **插件配置**：新增 `enabled`（默认 `true`）与 `desktopMode`（`auto`/`always`，默认
+   `auto`），经 profile patch 按 id 覆盖；`enabled: false` 时宿主拒绝除
+   `get-plugin-config` 外的方法，设置项显示已禁用说明。
+3. 宿主新增 `get-plugin-config` 方法（客户端启动时读取配置）；`Config` 用 Cordis 4 的
+   Standard Schema 手写实现，不引入 zod 等运行时依赖。
+4. 新增 `test/desktop-delegation.cjs` 回归（Config 校验 + Desktop auto/always 与
+   Browser auto/disabled 四态客户端行为），接入 CI 与发布前测试。
+5. 说明：`dsh web`/CLI 形态没有内置更新，因此 `desktopMode: auto` 与 `always` 在浏览器
+   下行为一致；该配置只在 DSH Desktop 中产生差异。
+
+### v1.15.0——**DSH 0.2.1-rc.5 同步完善**
 
 **背景**：DSH 0.2.1-rc.5 的 npm 发布通道为 `latest`/`next` = `0.2.1-rc.5`、`alpha` =
 `0.2.2-alpha.2`（核心版本更高的实验版，`engines.node >= 24.9`）。旧实现取 npm 全量

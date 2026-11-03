@@ -1,8 +1,15 @@
-// DSH 更新检查插件 — Client（静态 bundle 形态）v1.15.0
+// DSH 更新检查插件 — Client（静态 bundle 形态）v1.15.1
 // 首次打开自动检查一次更新（每页一次，跨 HMR 用 window 标志持久）；有新版本时在
 // 左下部「设置」按钮上方浮动卡片提示，提供【更新到 {版本}】/【稍后】。
 // host 调用走 POST /dsh-update-check/api（JSON {method}）。
 // 配色使用 DSH 语义化主题 token（--dsw-alias-*）以兼容第三方主题/亮暗色。
+//
+// v1.15.1 Desktop 让位 + 配置项：
+//   - 启动时读取宿主配置（get-plugin-config）。enabled:false → 不自动检查，设置项
+//     显示「已禁用」说明；desktopMode:auto（默认）且检测到 DSH Desktop 内置更新
+//     （globalThis.dshDesktop.protocolVersion === 1）→ 自动让位：不自动检查/不弹浮卡，
+//     设置项显示让位说明；desktopMode:always → 强制使用本插件。
+//   - Desktop 更新桥的判定与 dsh-client-ui-settings-general 的 DesktopUpdateSource 一致。
 //
 // v1.15.0 同步完善（DSH 0.2.1-rc.5 实测）：
 //   - 浮卡 z-index 10000 → 900：0.2.1 shell 自带浮层体系最高约 1100，
@@ -52,6 +59,33 @@ window.__ModuleLoader__.load({
     const DISMISS_KEY = 'dsh-updck-dismissed-version'
     const REPORTED_KEY = 'dsh-updck-reported-status'
     const API = '/dsh-update-check/api'
+
+    // ---------- 运行时配置（v1.15.1） ----------
+    // 宿主插件配置通过 get-plugin-config 读取（enabled / desktopMode）。
+    // desktopMode=auto 且检测到 DSH Desktop 内置更新桥（globalThis.dshDesktop，
+    // 与 settings-general 的 DesktopUpdateSource 同一判定）时自动让位：
+    // 不自动检查、不弹浮卡，设置项只显示让位说明；desktopMode=always 强制启用。
+    const CONFIG_DEFAULTS = { enabled: true, desktopMode: 'auto' }
+    let configPromise = null
+    function isDesktopRuntime() {
+      return !!(globalThis.dshDesktop && globalThis.dshDesktop.protocolVersion === 1)
+    }
+    function loadConfig() {
+      if (!configPromise) {
+        configPromise = call('get-plugin-config').then((r) => {
+          const cfg = Object.assign({}, CONFIG_DEFAULTS)
+          if (r && r.enabled === false) cfg.enabled = false
+          if (r && r.desktopMode === 'always') cfg.desktopMode = 'always'
+          return cfg
+        }).catch(() => Object.assign({}, CONFIG_DEFAULTS))
+      }
+      return configPromise
+    }
+    function isActive(cfg) {
+      if (!cfg || cfg.enabled === false) return false
+      if (cfg.desktopMode !== 'always' && isDesktopRuntime()) return false
+      return true
+    }
 
     const tokens = {
       primaryFill: 'var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary))',
@@ -222,6 +256,7 @@ window.__ModuleLoader__.load({
     // 显示"退出 DSH 后自动完成安装"，并把目标版本写入 sessionStorage，
     // 与浮动弹卡共享 DISMISS_KEY，避免安排后弹卡重复出现。
     function UpdateSettingsItem() {
+      const [gate, setGate] = React.useState('active')
       const [state, setState] = React.useState({
         currentVersion: null,
         latestVersion: null,
@@ -243,6 +278,17 @@ window.__ModuleLoader__.load({
           }
         }).catch(() => { /* 挂载时读取失败不打扰 */ })
         return () => { cancelled = true }
+      }, [])
+
+      // v1.15.1：Desktop 内置更新存在时（desktopMode=auto）自动让位；enabled:false 时禁用
+      React.useEffect(() => {
+        let live = true
+        loadConfig().then((cfg) => {
+          if (!live) return
+          if (!cfg.enabled) setGate('disabled')
+          else if (cfg.desktopMode !== 'always' && isDesktopRuntime()) setGate('yielded')
+        })
+        return () => { live = false }
       }, [])
 
       function doCheck() {
@@ -337,6 +383,28 @@ window.__ModuleLoader__.load({
         { fontSize: '13px', color: color || tokens.text2, marginTop: margin || '4px' }, {}
       )
 
+      // v1.15.1：让位/禁用态只渲染简短说明，不提供检查/更新按钮
+      if (gate === 'yielded') {
+        return React.createElement('div', { style: row },
+          React.createElement('div', { style: head },
+            React.createElement('span', { style: title }, 'DSH 更新')
+          ),
+          React.createElement('div', { style: line() },
+            'DSH Desktop 已内置更新检查，本插件已自动让位（desktopMode: auto），不再自动检查或提示更新。'),
+          React.createElement('div', { style: { fontSize: '12px', color: tokens.text3, marginTop: '4px' } },
+            '如需强制使用本插件（例如 Desktop 更新不可用的环境），可在 profile patch 中设置 desktopMode: always。')
+        )
+      }
+      if (gate === 'disabled') {
+        return React.createElement('div', { style: row },
+          React.createElement('div', { style: head },
+            React.createElement('span', { style: title }, 'DSH 更新')
+          ),
+          React.createElement('div', { style: line() },
+            '插件已通过配置禁用（enabled: false）。如需恢复，可在 profile patch 中移除该配置或设为 enabled: true。')
+        )
+      }
+
       return React.createElement('div', { style: row },
         React.createElement('div', { style: head },
           React.createElement('span', { style: title }, 'DSH 更新'),
@@ -385,10 +453,21 @@ window.__ModuleLoader__.load({
     // cordis 插件入口：浏览器侧 loader 会把本 factory 的返回值作为插件应用，
     // 必须是函数或含 apply 方法的对象（见文件头 v1.13.0 说明）。
     function apply(ctx) {
-      autoCheck()
-      // v1.15.0：卸载/HMR 时清理浮卡并复位自动检查标志（cordis effect 返回 disposer）
+      let disposed = false
+      // v1.15.1：先取宿主配置，Desktop 内置更新存在且 desktopMode=auto 时自动让位
+      loadConfig().then((cfg) => {
+        if (disposed) return
+        if (isActive(cfg)) { autoCheck(); return }
+        if (cfg.enabled === false) {
+          console.info('[dsh-check-for-updates] 插件已通过配置禁用（enabled: false）')
+        } else {
+          console.info('[dsh-check-for-updates] 检测到 DSH Desktop 内置更新，自动让位（desktopMode: auto；如需强制启用请设 desktopMode: always）')
+        }
+      })
+      // v1.15.0/v1.15.1：卸载/HMR 时清理浮卡、复位自动检查标志并中止未落地的配置回调
       if (ctx && typeof ctx.effect === 'function') {
         ctx.effect(() => () => {
+          disposed = true
           close()
           window.__dshUpdckStarted = false
         })

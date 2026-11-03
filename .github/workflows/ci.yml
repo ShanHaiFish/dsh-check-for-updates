@@ -47,3 +47,6 @@ jobs:
 
       - name: API route guard regression test
         run: node test/route-guard.cjs
+
+      - name: Desktop delegation & config regression test
+        run: node test/desktop-delegation.cjs

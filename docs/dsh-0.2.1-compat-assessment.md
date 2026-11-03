@@ -178,3 +178,26 @@ latest=0.2.1-rc.5, hasUpdate=false, lastUpdaterResult=null`；全部 7 项回归
 4. 运行中 GUI 需重启 DSH 才加载宿主半新代码（客户端半刷新页面即可）。
 
 
+## 九、v1.15.1：Desktop 让位与配置项
+
+**背景核实**（2026-11-03，DSH 0.2.1-rc.5 与 0.2.2-alpha.2 抽查）：`dsh web`/CLI 形态
+**没有**内置检查更新功能——CLI 无 update/upgrade 命令，安装包中无 DSH 自身 registry
+自检；设置页的 current-version 行只渲染构建内嵌版本。唯一内置更新属于 **DSH Desktop**
+（Electron 外壳）：`dsh-client-ui-settings-general` 通过 `globalThis.dshDesktop`
+（`protocolVersion === 1`）的 preload 桥取得更新状态，并注明 “absent in ordinary
+browsers”；浏览器/CLI 形态没有该桥。因此插件在 `dsh web` 下仍是唯一更新入口。
+
+**v1.15.1 实现**：
+
+1. 新增插件配置 `enabled`（默认 true）与 `desktopMode`（`auto`/`always`，默认 `auto`），
+   Cordis 4 Standard Schema 校验；profile patch 按 id 覆盖，`--dump-config` 已验证配置
+   进入组合树、`resolveConfig` 默认值/非法值行为正确（非法值抛 ValidationError）。
+2. 宿主新增 `get-plugin-config`；`enabled:false` 时除该读取方法外全部拒绝。
+3. 客户端启动读取配置：Desktop 桥存在且 `desktopMode=auto` → 不自动检查、不弹浮卡，
+   设置项只显示让位说明；`always` 强制启用；`enabled:false` 显示禁用说明。判定逻辑
+   与 settings-general 的 DesktopUpdateSource 一致。
+4. 新增 `test/desktop-delegation.cjs`（15 断言：Config 校验、路由配置、enabled 拦截、
+   Desktop auto/always 与 Browser auto/disabled 四态），接入 CI/发布前测试。
+
+当前环境（`dsh web`，无 Desktop 桥）下 `auto` 与 `always` 行为一致；Desktop 场景由
+上述回归测试覆盖（用 `globalThis.dshDesktop` 桩模拟）。

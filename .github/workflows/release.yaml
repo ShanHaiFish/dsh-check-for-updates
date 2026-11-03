@@ -42,6 +42,7 @@ jobs:
           node test/updater-status-filter.cjs
           node test/updater-lock.cjs
           node test/route-guard.cjs
+          node test/desktop-delegation.cjs
 
       - name: Publish to npm
         run: npm publish

@@ -4,7 +4,25 @@ import type { Context } from '@deepseek-ai/cordis'
 
 export declare const name: 'dsh-check-for-updates'
 export declare const inject: ['webServer']
-export declare function apply(ctx: Context): void
+
+// v1.15.1 插件配置（profile patch 中按 id 覆盖配置）
+export interface PluginConfig {
+  /** 总开关；false 时宿主拒绝除 get-plugin-config 外的所有方法 */
+  enabled: boolean
+  /** auto：检测到 DSH Desktop 内置更新时自动让位；always：始终使用本插件 */
+  desktopMode: 'auto' | 'always'
+}
+
+/** Cordis 4 Standard Schema 形态的配置校验器（不依赖 zod） */
+export declare const Config: {
+  '~standard': {
+    version: 1
+    vendor: 'dsh-check-for-updates'
+    validate(value: unknown): { value: PluginConfig } | { issues: Array<{ message: string; path?: PropertyKey[] }> }
+  }
+}
+
+export declare function apply(ctx: Context, config?: PluginConfig): void
 
 // v1.13.0 诊断导出（也用于更新器脚本生成）
 export interface KoffiIntegrity {
