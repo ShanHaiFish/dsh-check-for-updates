@@ -77,10 +77,16 @@ try {
   assert(Array.isArray(plugin.inject) && plugin.inject.indexOf('slots') !== -1,
     '未声明 inject slots: ' + JSON.stringify(plugin.inject))
 
-  // 模拟 ctx.slots 注入/注册
+  // 模拟 ctx.slots 注入/注册 + ctx.effect（v1.15.0 卸载清理）
   const registrations = []
   let injectTarget = null
+  let effectDisposer = null
   const ctx = {
+    effect(fn) {
+      const dispose = fn()
+      effectDisposer = dispose
+      return dispose
+    },
     slots: {
       inject(name, cb) { injectTarget = { name, cb } },
       register(opts, comp) { registrations.push({ opts, comp }) }
@@ -95,6 +101,11 @@ try {
   assert(reg, 'settings.general.item 未注册')
   assert(reg.opts.order === 30, 'order 错误: ' + reg.opts.order)
   assert(typeof reg.comp === 'function', '设置项组件不是函数')
+
+  // v1.15.0：apply 必须经 ctx.effect 注册卸载清理，且 disposer 可安全调用
+  assert(typeof effectDisposer === 'function', '未注册 ctx.effect 卸载清理 disposer')
+  effectDisposer()
+  assert(window.__dshUpdckStarted === false, '卸载清理未复位 __dshUpdckStarted')
 
   // 渲染组件（单次，不执行 effect），断言关键文案
   fake.reset()

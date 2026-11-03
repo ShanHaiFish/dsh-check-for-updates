@@ -1,8 +1,14 @@
-// DSH 更新检查插件 — Client（静态 bundle 形态）v1.14.0
+// DSH 更新检查插件 — Client（静态 bundle 形态）v1.15.0
 // 首次打开自动检查一次更新（每页一次，跨 HMR 用 window 标志持久）；有新版本时在
 // 左下部「设置」按钮上方浮动卡片提示，提供【更新到 {版本}】/【稍后】。
 // host 调用走 POST /dsh-update-check/api（JSON {method}）。
 // 配色使用 DSH 语义化主题 token（--dsw-alias-*）以兼容第三方主题/亮暗色。
+//
+// v1.15.0 同步完善（DSH 0.2.1-rc.5 实测）：
+//   - 浮卡 z-index 10000 → 900：0.2.1 shell 自带浮层体系最高约 1100，
+//     旧值会把更新卡画在设置弹窗/菜单/提示之上；
+//   - 插件卸载或 HMR 重载时经 ctx.effect 清理浮卡并复位自动检查标志，
+//     避免残留卡片与「已检查过」导致的重载后不再检查。
 //
 // v1.14.0 DSH 0.2.0 适配（代码零改动，仅清单与注释同步）：
 //   - require('react') 在 0.2.0 属平台 seed 模块（react/react-dom/@deepseek-ai/cordis/
@@ -76,7 +82,8 @@ window.__ModuleLoader__.load({
     function newCard() {
       close()
       card = el('div', {
-        position: 'fixed', bottom: '96px', left: '16px', zIndex: '10000',
+        // v1.15.0：900 低于 shell 浮层（约 1100）与弹窗，避免遮挡设置对话框
+        position: 'fixed', bottom: '96px', left: '16px', zIndex: '900',
         width: '290px', maxWidth: 'calc(100vw - 32px)', padding: '14px 16px',
         backgroundColor: tokens.bg, border: '1px solid ' + tokens.border, borderRadius: '10px',
         boxShadow: '0 8px 24px rgba(0,0,0,0.18)', color: tokens.text, fontSize: '13px', lineHeight: '1.5'
@@ -379,6 +386,13 @@ window.__ModuleLoader__.load({
     // 必须是函数或含 apply 方法的对象（见文件头 v1.13.0 说明）。
     function apply(ctx) {
       autoCheck()
+      // v1.15.0：卸载/HMR 时清理浮卡并复位自动检查标志（cordis effect 返回 disposer）
+      if (ctx && typeof ctx.effect === 'function') {
+        ctx.effect(() => () => {
+          close()
+          window.__dshUpdckStarted = false
+        })
+      }
       // 调试句柄挂 window（普通对象不能作为模块导出返回）
       if (!window.__dshUpdateChecker) {
         window.__dshUpdateChecker = { recheck: () => call('check-for-updates') }

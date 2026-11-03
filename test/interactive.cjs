@@ -65,10 +65,12 @@ global.window = {
     setItem: (k, v) => session.set(k, String(v))
   }
 }
-// client 使用裸 fetch（全局绑定）
+// client 使用裸 fetch（全局绑定）；记录 method/url/content-type 以便断言 host 契约
+const fetchCalls = []
 global.fetch = async (url, opts) => {
   const body = JSON.parse(opts.body)
   fetchLog.push(body.method)
+  fetchCalls.push({ url, method: opts.method, contentType: (opts.headers || {})['content-type'] })
   return { json: async () => responses[body.method] || { error: 'unknown method: ' + body.method } }
 }
 
@@ -134,6 +136,10 @@ function flush() {
   let texts = collectTexts(tree).join('|')
   assert(fetchLog.indexOf('get-current-version') !== -1, '挂载未调用 get-current-version，log=' + fetchLog)
   assert(texts.indexOf('当前版本: 1.13.1') !== -1, '未显示当前版本。texts=' + texts)
+  // v1.15.0 host 路由要求 POST + application/json；客户端契约必须保持一致
+  assert(fetchCalls.length > 0, '未记录任何 fetch 调用')
+  assert(fetchCalls.every((c) => c.url === '/dsh-update-check/api' && c.method === 'POST' &&
+    c.contentType === 'application/json'), 'client 未按 POST + application/json 契约调用 host：' + JSON.stringify(fetchCalls))
 
   // 2) 点击「检查更新」
   fetchLog.length = 0

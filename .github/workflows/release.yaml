@@ -40,6 +40,8 @@ jobs:
           node test/version.cjs
           node test/dsh-info.cjs
           node test/updater-status-filter.cjs
+          node test/updater-lock.cjs
+          node test/route-guard.cjs
 
       - name: Publish to npm
         run: npm publish

@@ -29,6 +29,8 @@ export interface UpdaterConfig {
   npmCli: string
   statusFile: string
   createdAt: string
+  /** v1.15.0：单飞锁文件路径（updater 完成/退出时删除） */
+  lockFile?: string
   dryRun?: boolean
   waitParentMs?: number
   installTimeoutMs?: number
@@ -46,3 +48,29 @@ export declare function compareVersions(a: string, b: string): number
 
 /** 从 packument versions 键集合中取最高版本 */
 export declare function pickMax(versions: Record<string, unknown>): string | null
+
+// v1.15.0 导出：发布通道感知的最新版本选择（供 test/version.cjs 回归测试使用）
+/** packument：省略或缺失时按非 alpha 最高版本兜底；alpha 预发布永不作为更新目标 */
+export declare function pickLatestVersion(packument: unknown): string | null
+
+// v1.15.0 导出：更新器单飞锁（供 test/updater-lock.cjs 回归测试使用）
+/** 单飞锁文件绝对路径（系统临时目录） */
+export declare function updaterLockPath(): string
+
+export interface UpdaterLockHolder {
+  id?: string
+  mode?: 'update' | 'repair'
+  parentPid?: number
+  targetVersion?: string | null
+  createdAt?: string
+}
+
+export type UpdaterLockResult =
+  | { ok: true; lockPath: string }
+  | { ok: false; busy?: boolean; holder?: UpdaterLockHolder; error: string }
+
+/** 以 O_EXCL 抢锁；已存在且非陈旧时返回 {ok:false, busy:true} */
+export declare function acquireUpdaterLock(info: UpdaterLockHolder): UpdaterLockResult
+
+/** 释放单飞锁（不存在视为成功） */
+export declare function releaseUpdaterLock(lockPath: string): void

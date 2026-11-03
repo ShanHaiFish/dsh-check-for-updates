@@ -6,7 +6,8 @@
 ![GitHub Stars](https://img.shields.io/github/stars/ShanHaiFish/dsh-check-for-updates)
 
 一个用于检查并安全更新 DSH (DeepSeek Harness) 的 Cordis 插件（静态 bundle 形态），
-兼容 DSH 0.1.x 与 0.2.x 运行时（v1.14.0 起通过 DSH 0.2.0 启动严格兼容校验）。
+兼容 DSH 0.1.x 与 0.2.x 运行时（v1.14.0 起通过 DSH 0.2.0 启动严格兼容校验；
+v1.15.0 起按发布通道 `latest`/`next` 选版，已在 DSH 0.2.1-rc.5 实测验证）。
 
 ## 截图 (Screenshots)
 
@@ -37,7 +38,9 @@ koffi 原生模块（`koffi.node`），npm 升级时包元数据更新成功、�
 
 另有防护网：每次「检查更新」时顺带做 koffi 完整性自检（只读文件、无副作用），
 发现断链即弹「DSH 安装文件损坏」警告卡，提供【安排修复】一键走上述分离式流程
-（repair 模式，仅校验并修复 koffi）。
+（repair 模式，仅校验并修复 koffi）。v1.15.0 起，同一时刻只允许一个排队/执行中的
+更新任务（`$TMPDIR/dsh-updater.lock` 单飞锁），重复点击或从多个入口安排会被拦下并
+提示「已有更新任务在排队」，避免多个 updater 并发 `npm install` 互相踩踏。
 
 ## 安装（静态 bundle，推荐）
 
@@ -49,7 +52,7 @@ koffi 原生模块（`koffi.node`），npm 升级时包元数据更新成功、�
 | 动态插件（`host.js` + `client.js`） | 根目录两个文件 | **遗留，不再维护**（v1.10.1 后冻结，仅作历史参考） |
 
 ```sh
-# 从 npm（推荐，已发布到 npmjs；正式环境建议固定版本，例如 @1.14.0）：
+# 从 npm（推荐，已发布到 npmjs；正式环境建议固定版本，例如 @1.15.0）：
 dsh plugin --profile web add dsh-check-for-updates
 
 # 从 GitHub：
@@ -84,9 +87,15 @@ realpath 上溯包根（v1.14.0 起 node 与 DSH 安装根异位也能正确识�
 - ✅ **koffi 断链自愈**：自动从 registry tarball 恢复，修复失败会在下次启动时告知
 - ✅ **启动自检**：每次检查更新时校验 koffi 完整性，发现损坏弹警告卡一键安排修复
 - ✅ **兼容 DSH 0.1.x / 0.2.x 双世代**：peerDependencies 声明双范围，通过 0.2.0 启动
-  严格兼容校验（v1.14.0）
+  严格兼容校验（v1.14.0；DSH 0.2.1-rc.5 实测通过，宿主/客户端契约未变）
 - ✅ **版本一致不打扰**：已是最新时不显示更新提示与冗余行，历史失败记录在目标版本
-  已安装后自动隐藏（v1.14.0）
+  已安装后自动隐藏（v1.14.0；v1.15.0 起目标为 alpha 的陈旧失败记录也不再提示）
+- ✅ **发布通道感知选版**：只跟随 `latest`/`next` 推荐通道，排除更高核心的 `alpha`
+  实验版（其 `engines.node` 可能高于本机 Node），避免把用户带离推荐通道（v1.15.0）
+- ✅ **更新器单飞**：弹卡 / 设置项 / 多标签页的重复安排会被锁拦截，避免多个 updater
+  等父进程退出后并发执行 `npm install` 互相踩踏（v1.15.0）
+- ✅ **API 路由加固**：要求 `application/json` + 同源 Origin，阻断任意网页对本地
+  exact 路由发起「安排更新/修复」副作用请求（v1.15.0）
 - ✅ 添加"测试网络"按钮用于调试
 
 ## 文件结构
@@ -109,12 +118,28 @@ node --check lib/index.js && node --check lib/updater.cjs && node --check lib/la
 # 冒烟测试（结构 + 交互契约）
 node test/smoke.cjs
 node test/interactive.cjs
+
+# 回归测试（版本比较/通道选版、安装探测、失败记录过滤、更新器单飞锁、路由加固）
+node test/version.cjs
+node test/dsh-info.cjs
+node test/updater-status-filter.cjs
+node test/updater-lock.cjs
+node test/route-guard.cjs
 ```
 
 - `test/smoke.cjs` - 结构冒烟：bundle 插件形态（`{ name, inject: ['slots'], apply }`）、
   `settings.general.item` 注册、设置项组件渲染
 - `test/interactive.cjs` - 交互契约：模拟点击设置项各按钮（检查更新/测试网络/更新到），
   验证与 host API（`/dsh-update-check/api`）契约的完整对齐，含「安排更新」语义与去重键
+- `test/version.cjs` - 版本语义回归：semver 预发布排序 + 发布通道选版（alpha 排除、
+  next 领先 latest、未打标签 rc 兜底）
+- `test/dsh-info.cjs` - 安装探测回归：Windows/Unix 两种全局布局、node 与 DSH 异位、
+  `globalRoot` 即 npm prefix
+- `test/updater-status-filter.cjs` - 失败记录过滤矩阵：目标已达成/已不可达/alpha 陈旧
+  记录、repair 与成功记录豁免
+- `test/updater-lock.cjs` - 更新器单飞锁：有效锁拦截、陈旧锁清理（updater 已死/超时/
+  已完成）、不可解析锁宽限、存活父进程不误清、updater 自清理
+- `test/route-guard.cjs` - API 路由加固：405/415/403/200 矩阵与同源判定
 
 GitHub Actions 云端自动化：
 
@@ -132,7 +157,49 @@ GitHub Actions 云端自动化：
 > 每版发布同步归档至 [GitHub Releases](https://github.com/ShanHaiFish/dsh-check-for-updates/releases)，
 > npm 发布记录见 [dsh-check-for-updates on npm](https://www.npmjs.com/package/dsh-check-for-updates)。
 
-### v1.14.0（当前版本）——**DSH 0.2.0 适配**
+### v1.15.0（当前版本）——**DSH 0.2.1-rc.5 同步完善**
+
+**背景**：DSH 0.2.1-rc.5 的 npm 发布通道为 `latest`/`next` = `0.2.1-rc.5`、`alpha` =
+`0.2.2-alpha.2`（核心版本更高的实验版，`engines.node >= 24.9`）。旧实现取 npm 全量
+`versions` 的 semver 最大者，会跨通道选中 alpha；本机实测因此持续提示并尝试安装
+`0.2.2-alpha.2`，并留下一次真实更新失败（npm reify ENOENT）。同时 v1.14.1 的 Linux
+`--prefix` 修复尚未发布。本版一并处理。
+
+1. **发布通道感知选版（`pickLatestVersion`）**：候选 = `dist-tags.latest` ∪
+   `dist-tags.next` ∪ 非 alpha 的最高版本（兜底标签滞后），**alpha 预发布永不作为
+   更新目标**；`test/version.cjs` 增加 6 个通道用例（含真实 `0.2.1-rc.5`/`0.2.2-alpha.2`
+   快照、`next` 领先 `latest`、未打标签的更新 rc）。
+2. **陈旧失败记录过滤**：update 模式失败记录在「当前版本 ≥ 推荐最新版本」时也过滤
+   （不只看「≥ 当次目标」），避免目标为 alpha 等不可达版本时提示永久残留；确实还有
+   更新推荐版时仍保留提示，供用户重试。
+3. **更新器单飞锁**：`scheduleUpdater` 先以 `O_EXCL` 抢 `$TMPDIR/dsh-updater.lock`，
+   已有有效任务时返回「已有更新任务在排队」，不再启动第二个 updater；updater
+   结束/退出时校验任务 id 后删除锁。锁内记录 updater PID，updater 在写状态前被强杀
+   时下次安排可立即判定陈旧；父进程已死且超过 60 分钟的锁、updater 已写完同 id 结果
+   的残留锁、以及暂不可解析的锁（60 秒宽限后）按陈旧清理。新增
+   `test/updater-lock.cjs` 回归。
+4. **v1.14.1 Linux 修复并入**：`deriveGlobalRoot` 返回 npm prefix 本身（Unix 先剥
+   `<X>/lib/node_modules`），修复「安排更新必失败：`EACCES mkdir /usr/local/lib/lib`」；
+   `test/dsh-info.cjs` 增加无 `lib` 层的 Windows/非标准布局用例。
+5. **API 路由加固**：`/dsh-update-check/api` 现在要求 `content-type: application/json`
+   （否则 415）且 Origin 与 Host 同源（否则 403），防止跨站页面触发本地更新/修复。
+   DSH 0.2.1 的 launch-token / Host-Origin 围栏只覆盖 Connection-owned 路由，第三方
+   exact 路由不在其保护内。
+6. **客户端清理**：浮卡 `z-index` 10000 → 900（低于 DSH 0.2.1 shell 浮层/弹窗），
+   并在插件卸载/HMR 时经 `ctx.effect` 清理浮卡、复位自动检查标志。
+7. **清单同步**：`dsh.client.inject` 保留 `@deepseek-ai/dsh-client-runtime` 条目以维持
+   0.1.x 兼容（0.2.1 对缺失条目软跳过，加载不受影响）；peerDependencies 追加
+   `^0.2.1-rc.1`（默认 semver 语义下也匹配 `0.2.1-rc.5`；0.3.x 发布前需再放宽）。
+8. **兼容性实测（DSH 0.2.1-rc.5）**：宿主 `POST /dsh-update-check/api` 返回
+   `{"version":"0.2.1-rc.5"}`；客户端设置项 occupant `update-checker` 激活；10 个
+   `--dsw-alias-*` token 在亮/暗调色板均存在；`dshInfo` 版本与 `globalRoot=/usr/local`、
+   koffi 3.1.1 一致；全部回归测试通过。
+
+> 详细评估（含 DSH 0.2.1-rc.5 宿主/客户端实测证据与问题取证）：
+> [docs/dsh-0.2.1-compat-assessment.md](https://github.com/ShanHaiFish/dsh-check-for-updates/blob/main/docs/dsh-0.2.1-compat-assessment.md)
+> （该文件不在 npm 包内，npm 页面请走 GitHub 链接）
+
+### v1.14.0——**DSH 0.2.0 适配**
 
 **适配**（目标运行时 DSH `0.2.0-rc.1`，同时保持 `0.1.x` 兼容）：
 

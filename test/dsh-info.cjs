@@ -2,6 +2,9 @@
 // —— v1.14.0 修复的场景：node 为 /usr/bin/node-22（发行版命名）而 dsh 装在
 // /usr/local/lib/node_modules，旧探测链（仅 execPath 同根 + require.resolve）两者
 // 都够不着，返回 0.0.0。修复后经 PATH 上 dsh 启动器软链 realpath 向上找包根。
+// v1.14.1：globalRoot 改为 npm prefix 本身（updater --prefix 语义）——npm 全局
+// 布局 Unix 是 <prefix>/lib/node_modules，npm 会自行追加 lib/node_modules，
+// 旧期望 <prefix>/lib 会让 npm 去 mkdir <prefix>/lib/lib（EACCES）。
 // CI 用法: node test/dsh-info.cjs
 'use strict'
 const { spawnSync } = require('child_process')
@@ -50,7 +53,8 @@ makeFixture(prefix1, '9.9.9-fixture')
 const info1 = probe(prefix1)
 check('用例1 命中 fixture 版本', info1.version, '9.9.9-fixture')
 check('用例1 pkgDir', info1.pkgDir, path.join(prefix1, 'lib', 'node_modules', '@deepseek-ai', 'dsh'))
-check('用例1 globalRoot 推导（updater --prefix 依赖）', info1.globalRoot, path.join(prefix1, 'lib'))
+// v1.14.1：--prefix 需要 npm prefix 本身（npm 自己追加 lib/node_modules）
+check('用例1 globalRoot 推导（updater --prefix 依赖）', info1.globalRoot, prefix1)
 
 // 用例 2：非 dsh 包同名入口不应误报——bin 下软链指向别的包
 const prefix2 = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-info-case2-'))
@@ -67,8 +71,24 @@ const info2 = probe(prefix2)
 // 可能命中真机安装，但绝不能误报 other-pkg 的版本
 check('用例2 非 dsh 包不误报', info2.version === '1.0.0', false)
 
+// 用例 3：node 同根 npm -g 布局（Windows 官方包/非标准前缀形态）：
+// prefix/bin/dsh（软链）→ prefix/node_modules/@deepseek-ai/dsh（无 lib 层）
+const prefix3 = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-info-case3-'))
+{
+  const pkgDir3 = path.join(prefix3, 'node_modules', '@deepseek-ai', 'dsh')
+  fs.mkdirSync(path.join(pkgDir3, 'lib'), { recursive: true })
+  fs.mkdirSync(path.join(prefix3, 'bin'), { recursive: true })
+  fs.writeFileSync(path.join(pkgDir3, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '9.9.8-fixture' }))
+  fs.writeFileSync(path.join(pkgDir3, 'lib', 'bin.js'), '// fake dsh entry\n')
+  fs.symlinkSync(path.join(pkgDir3, 'lib', 'bin.js'), path.join(prefix3, 'bin', 'dsh'))
+}
+const info3 = probe(prefix3)
+check('用例3 命中 fixture 版本', info3.version, '9.9.8-fixture')
+check('用例3 pkgDir', info3.pkgDir, path.join(prefix3, 'node_modules', '@deepseek-ai', 'dsh'))
+check('用例3 globalRoot 推导（无 lib 层时取 node_modules 父目录）', info3.globalRoot, prefix3)
+
 // 清理
-for (const dir of [prefix1, prefix2]) fs.rmSync(dir, { recursive: true, force: true })
+for (const dir of [prefix1, prefix2, prefix3]) fs.rmSync(dir, { recursive: true, force: true })
 
 console.log(failed === 0 ? 'OK dsh-info: 全部通过' : `FAIL dsh-info: ${failed} 项失败`)
 process.exit(failed === 0 ? 0 : 1)

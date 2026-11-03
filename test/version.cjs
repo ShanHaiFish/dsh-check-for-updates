@@ -1,12 +1,13 @@
-// 版本比较回归测试：验证 semver 预发布排序（alpha < beta < rc < 正式版），
-// 以及从真实 npm 发布集合中取到的最高版本必须是 RC 而非 Alpha。
+// 版本比较回归测试：验证 semver 预发布排序（alpha < beta < rc < 正式版）、
+// 从真实 npm 发布集合中取到的最高版本必须是 RC 而非 Alpha，以及 v1.15.0 的
+// 发布通道选版（alpha 实验通道永不作为更新目标）。
 // CI 用法: node test/version.cjs
 'use strict'
 
 async function main() {
   // lib/index.js 只 import node 内置模块 + require 无副作用的 launcher.cjs，
   // 动态 import 不会触发插件 apply/网络请求，可安全复用其导出的比较器。
-  const { compareVersions, pickMax } = await import('../lib/index.js')
+  const { compareVersions, pickMax, pickLatestVersion } = await import('../lib/index.js')
 
   // 逐条回归：比较结果符号符合期望（常见 bug 是把 rc.1 与 alpha.5 的数字后缀比大小）
   const cases = [
@@ -53,6 +54,49 @@ async function main() {
   const bestOk = best === '0.1.2-rc.1'
   console.log((bestOk ? 'PASS' : 'FAIL') + '  pickMax(真实发布集合) = ' + best + ' (期望 0.1.2-rc.1)')
   if (!bestOk) failed++
+
+  // v1.15.0 发布通道回归：alpha 实验通道永不作为更新目标。真实 2026-11 快照：
+  // latest/next = 0.2.1-rc.5，alpha = 0.2.2-alpha.2——后者的核心版本更高，纯
+  // semver 比较会选中它，但它是实验通道且 engines.node >=24.9（旧实现即因此把
+  // 用户引向 alpha，并触发了一次失败的自动更新）。
+  const channelCases = [
+    ['忽略更高核心的 alpha（dist-tags 参与）',
+      { 'dist-tags': { latest: '0.2.1-rc.5', next: '0.2.1-rc.5', alpha: '0.2.2-alpha.2' },
+        versions: { '0.2.1-rc.4': {}, '0.2.1-rc.5': {}, '0.2.2-alpha.2': {} } },
+      '0.2.1-rc.5'],
+    ['无 dist-tags 时排除 alpha 取最高非 alpha',
+      { versions: { '0.2.1-rc.4': {}, '0.2.1-rc.5': {}, '0.2.2-alpha.2': {} } },
+      '0.2.1-rc.5'],
+    ['latest 标签滞后时采用 next 上更新的 rc',
+      { 'dist-tags': { latest: '0.2.1-rc.5', next: '0.2.1-rc.6' },
+        versions: { '0.2.1-rc.5': {}, '0.2.1-rc.6': {} } },
+      '0.2.1-rc.6'],
+    ['未打标签的更新 rc 作为兜底',
+      { 'dist-tags': { latest: '0.2.1-rc.5' },
+        versions: { '0.2.1-rc.5': {}, '0.2.1-rc.7': {} } },
+      '0.2.1-rc.7'],
+    ['只有更新核心的 alpha 时保持推荐版',
+      { 'dist-tags': { latest: '0.2.1-rc.5' },
+        versions: { '0.2.1-rc.5': {}, '0.3.0-alpha.1': {} } },
+      '0.2.1-rc.5'],
+    ['alpha 判定大小写不敏感（ALPHA.2）',
+      { versions: { '0.2.1-rc.5': {}, '0.3.0-ALPHA.2': {} } },
+      '0.2.1-rc.5'],
+    ['非点分的 alpha 标识符也排除（alpha1）',
+      { versions: { '0.2.1-rc.5': {}, '0.3.0-alpha1': {} } },
+      '0.2.1-rc.5'],
+    ['标签指向 versions 中不存在的版本时不采用',
+      { 'dist-tags': { latest: '9.9.9-absent' }, versions: { '0.2.1-rc.5': {} } },
+      '0.2.1-rc.5'],
+    ['空 packument 返回 null', {}, null]
+  ]
+  for (const [label, packument, expect] of channelCases) {
+    const got = pickLatestVersion(packument)
+    const ok = got === expect
+    console.log((ok ? 'PASS' : 'FAIL') + '  pickLatestVersion(' + label + ') = ' +
+      JSON.stringify(got) + ' (期望 ' + JSON.stringify(expect) + ')')
+    if (!ok) failed++
+  }
 
   if (failed) {
     console.error('FAILED: ' + failed + ' 项未通过')
